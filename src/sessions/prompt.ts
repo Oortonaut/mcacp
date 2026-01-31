@@ -4,7 +4,7 @@ import type {
 } from '../types/acp.js';
 import type { AgentHandle } from '../acp/lifecycle.js';
 import type { McacpConfig } from '../types/config.js';
-import type { ActiveSession, PromptEvent } from './index.js';
+import type { ActiveSession, BarePromptEvent, PromptEvent } from './index.js';
 import { LifecycleManager } from '../acp/lifecycle.js';
 import { SessionManager } from './index.js';
 import { PermissionEngine } from '../permissions/index.js';
@@ -19,6 +19,12 @@ interface AgentDispatch {
 
 export class PromptHandler {
   private dispatchers = new Map<string, AgentDispatch>();
+  private globalWaiter: {
+    resolve: (events: PromptEvent[]) => void;
+    collected: PromptEvent[];
+    nagleTimer: ReturnType<typeof setTimeout> | null;
+    nagleMs: number;
+  } | null = null;
 
   constructor(
     private lifecycle: LifecycleManager,
@@ -120,6 +126,77 @@ export class PromptHandler {
     await handle.transport.request('session/set_mode', { sessionId, modeId });
   }
 
+  // ---- Global event stream ----
+
+  /**
+   * Block until any prompted session produces events. Returns events stamped
+   * with sessionId and agentId. Supports optional Nagle-style coalescing.
+   */
+  events(timeoutMs?: number, nagleMs = 0): Promise<{ events: PromptEvent[] }> {
+    // Drain all prompted sessions
+    const allEvents: PromptEvent[] = [];
+    for (const dispatch of this.dispatchers.values()) {
+      for (const session of dispatch.sessions.values()) {
+        allEvents.push(...session.eventQueue.splice(0));
+      }
+    }
+    if (allEvents.length > 0) return Promise.resolve({ events: allEvents });
+
+    // No prompted sessions? Return empty immediately.
+    let any = false;
+    for (const d of this.dispatchers.values()) { if (d.sessions.size > 0) { any = true; break; } }
+    if (!any) return Promise.resolve({ events: [] });
+
+    // Evict previous global waiter
+    if (this.globalWaiter) this.flushGlobalWaiter();
+
+    return new Promise((resolve) => {
+      const wrappedResolve = (events: PromptEvent[]) => {
+        if (timer) clearTimeout(timer);
+        resolve({ events });
+      };
+
+      const timer = timeoutMs != null
+        ? setTimeout(() => {
+            if (this.globalWaiter?.resolve === wrappedResolve) this.flushGlobalWaiter();
+          }, timeoutMs)
+        : null;
+
+      this.globalWaiter = { resolve: wrappedResolve, collected: [], nagleTimer: null, nagleMs };
+    });
+  }
+
+  /**
+   * Cleanup hook: if no prompted sessions remain, resolve the global waiter
+   * with whatever events have been collected.
+   */
+  onSessionRemoved(): void {
+    if (!this.globalWaiter) return;
+    for (const d of this.dispatchers.values()) { if (d.sessions.size > 0) return; }
+    this.flushGlobalWaiter();
+  }
+
+  private notifyGlobalWaiter(event: PromptEvent): void {
+    if (!this.globalWaiter) return;
+    this.globalWaiter.collected.push(event);
+
+    if (this.globalWaiter.nagleMs <= 0) {
+      this.flushGlobalWaiter();
+      return;
+    }
+    // Nagle: reset timer on each event, flush after nagleMs of quiet
+    if (this.globalWaiter.nagleTimer) clearTimeout(this.globalWaiter.nagleTimer);
+    this.globalWaiter.nagleTimer = setTimeout(() => this.flushGlobalWaiter(), this.globalWaiter.nagleMs);
+  }
+
+  private flushGlobalWaiter(): void {
+    if (!this.globalWaiter) return;
+    const { resolve, collected, nagleTimer } = this.globalWaiter;
+    this.globalWaiter = null;
+    if (nagleTimer) clearTimeout(nagleTimer);
+    resolve(collected);
+  }
+
   // ---- Dispatcher management ----
 
   /**
@@ -197,7 +274,7 @@ export class PromptHandler {
    * Nagle-style consolidation: buffer text chunk events and flush as batches.
    * Non-chunk events flush any pending buffer first, then push immediately.
    */
-  private pushEventConsolidated(session: ActiveSession, event: PromptEvent): void {
+  private pushEventConsolidated(session: ActiveSession, event: BarePromptEvent): void {
     if (event.type !== 'update') {
       // Non-update events (permission_request, complete, error) — flush and push
       this.flushChunkBuffer(session);
@@ -282,12 +359,18 @@ export class PromptHandler {
     session.chunkBuffer = null;
   }
 
-  private pushEvent(session: ActiveSession, event: PromptEvent): void {
+  private pushEvent(session: ActiveSession, bare: BarePromptEvent): void {
+    const event: PromptEvent = { ...bare, sessionId: session.sessionId, agentId: session.agentId };
     session.eventQueue.push(event);
+
+    // Per-session waiter
     if (session.waiters.length > 0) {
       const waiter = session.waiters.shift()!;
       waiter(session.eventQueue.splice(0));
     }
+
+    // Global waiter
+    this.notifyGlobalWaiter(event);
   }
 
   private handleOperatorPermission(

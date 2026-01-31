@@ -157,6 +157,7 @@ export async function createServer(configPath?: string) {
     { agentId: z.string().describe('ID of the agent to shut down') },
     async ({ agentId }) => {
       sessions.closeAllForAgent(agentId);
+      promptHandler.onSessionRemoved();
       await lifecycle.shutdown(agentId);
       return { content: [{ type: 'text' as const, text: `Shut down ${agentId}` }] };
     },
@@ -219,6 +220,7 @@ export async function createServer(configPath?: string) {
     async ({ sessionId }) => {
       agentRequests.unregisterSession(sessionId);
       sessions.closeSession(sessionId);
+      promptHandler.onSessionRemoved();
       return { content: [{ type: 'text' as const, text: `Closed session ${sessionId}` }] };
     },
   );
@@ -263,6 +265,20 @@ export async function createServer(configPath?: string) {
     async ({ sessionId }) => ({
       content: [{ type: 'text' as const, text: JSON.stringify(
         await promptHandler.prompt(sessionId), null, 2,
+      ) }],
+    }),
+  );
+
+  server.tool(
+    'events',
+    'Block until any prompted session produces events. Returns events stamped with sessionId and agentId. Supports optional Nagle-style coalescing to batch events across sessions.',
+    {
+      timeoutMs: z.number().optional().describe('Max wait time in ms. Returns empty on timeout.'),
+      nagleMs: z.number().optional().describe('Coalescing window in ms. Batches events arriving within this window. Default: 0 (immediate).'),
+    },
+    async ({ timeoutMs, nagleMs }) => ({
+      content: [{ type: 'text' as const, text: JSON.stringify(
+        await promptHandler.events(timeoutMs, nagleMs), null, 2,
       ) }],
     }),
   );

@@ -18,11 +18,16 @@ export interface SessionFile {
 
 export type PromptState = 'idle' | 'prompted';
 
-export type PromptEvent =
+export type BarePromptEvent =
   | { type: 'update'; update: SessionUpdate }
   | { type: 'permission_request'; toolCallId: string; title: string; options: Array<{ optionId: string; name: string; kind: string }> }
   | { type: 'complete'; stopReason: StopReason }
   | { type: 'error'; message: string };
+
+export type PromptEvent = BarePromptEvent & {
+  sessionId: SessionId;
+  agentId: string;
+};
 
 export interface ActiveSession {
   sessionId: SessionId;

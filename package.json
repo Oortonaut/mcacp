@@ -1,6 +1,6 @@
 {
   "name": "mcacp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "MCP-to-ACP bridge — let any MCP client drive ACP coding agents",
   "type": "module",
   "main": "dist/index.js",

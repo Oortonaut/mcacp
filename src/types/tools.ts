@@ -300,6 +300,25 @@ export const SetModeInputSchema = z.object({
     ),
 });
 
+export const EventsInputSchema = z.object({
+  timeoutMs: z
+    .number()
+    .optional()
+    .describe(
+      'Maximum time in milliseconds to wait for events. When omitted the call blocks indefinitely ' +
+        'until at least one event arrives. If the timeout expires before any events arrive, an empty ' +
+        'array is returned.',
+    ),
+  nagleMs: z
+    .number()
+    .optional()
+    .describe(
+      'Coalescing window in milliseconds. When set, incoming events are batched: the call waits until ' +
+        'no new events arrive for this duration before returning the batch. Default: 0 (return immediately ' +
+        'on first event).',
+    ),
+});
+
 // ---- Status / monitoring tools --------------------------------------------
 
 export const ListRunningAgentsInputSchema = z
@@ -464,6 +483,15 @@ export const setMode: ToolDefinition = {
   inputSchema: SetModeInputSchema,
 };
 
+export const events: ToolDefinition = {
+  name: 'events',
+  description:
+    'Block until any prompted session produces events. Returns an array of events, each stamped with ' +
+    'the sessionId and agentId of the session that produced it. Supports optional Nagle-style ' +
+    'coalescing to batch events arriving across multiple sessions within a configurable time window.',
+  inputSchema: EventsInputSchema,
+};
+
 // ---- Status / monitoring tools --------------------------------------------
 
 export const listRunningAgents: ToolDefinition = {
@@ -516,6 +544,7 @@ export const ALL_TOOLS: ToolDefinition[] = [
   closeSession,
   // Interaction
   prompt,
+  events,
   grantPermission,
   cancel,
   setMode,
@@ -546,6 +575,7 @@ export const TOOL_SCHEMAS: Record<string, z.ZodType<any>> = {
   close_session: CloseSessionInputSchema,
   // Interaction
   prompt: PromptInputSchema,
+  events: EventsInputSchema,
   grant_permission: GrantPermissionInputSchema,
   cancel: CancelInputSchema,
   set_mode: SetModeInputSchema,
