@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { McacpConfig } from '../types/config.js';
@@ -28,6 +28,8 @@ interface RegistryCache {
   entries: RegistryEntry[];
   fetchedAt: number;
   url: string;
+  /** Raw registry response, preserved so all data (extensions, metadata, etc.) survives disk caching. */
+  raw?: unknown;
 }
 
 const CACHE_TTL_MS = 3600_000;
@@ -40,6 +42,7 @@ export class RegistryManager {
   constructor(private config: McacpConfig) {
     this.agentsJsonPath = resolve(config.installDir, 'agents.json');
     this.loadInstalled();
+    this.loadCaches();
   }
 
   async refreshAll(): Promise<void> {
@@ -156,11 +159,58 @@ export class RegistryManager {
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json() as RegistryEntry[];
-      this.caches.set(url, { entries: data, fetchedAt: Date.now(), url });
+      const data = await response.json();
+      const entries: RegistryEntry[] = Array.isArray(data) ? data : (data.agents ?? []);
+      const cache: RegistryCache = { entries, fetchedAt: Date.now(), url, raw: data };
+      this.caches.set(url, cache);
+      this.saveCacheToDisk(url, cache);
     } catch (err) {
-      if (!cached) throw new Error(`Failed to fetch registry ${url}: ${err}`);
+      if (!cached) {
+        const disk = this.loadCacheFromDisk(url);
+        if (disk) { this.caches.set(url, disk); return; }
+        throw new Error(`Failed to fetch registry ${url}: ${err}`);
+      }
     }
+  }
+
+  private get cacheDirPath(): string {
+    return resolve(this.config.installDir, 'cache');
+  }
+
+  private cacheFileName(url: string): string {
+    return Buffer.from(url).toString('base64url').slice(0, 64) + '.json';
+  }
+
+  private loadCaches(): void {
+    const dir = this.cacheDirPath;
+    if (!existsSync(dir)) return;
+    try {
+      for (const file of readdirSync(dir)) {
+        if (!file.endsWith('.json')) continue;
+        try {
+          const data: RegistryCache = JSON.parse(readFileSync(join(dir, file), 'utf-8'));
+          if (data.url && Array.isArray(data.entries)) {
+            this.caches.set(data.url, data);
+          }
+        } catch {}
+      }
+    } catch {}
+  }
+
+  private loadCacheFromDisk(url: string): RegistryCache | undefined {
+    const filePath = join(this.cacheDirPath, this.cacheFileName(url));
+    if (!existsSync(filePath)) return undefined;
+    try {
+      const data: RegistryCache = JSON.parse(readFileSync(filePath, 'utf-8'));
+      if (data.url === url && Array.isArray(data.entries)) return data;
+    } catch {}
+    return undefined;
+  }
+
+  private saveCacheToDisk(url: string, cache: RegistryCache): void {
+    const dir = this.cacheDirPath;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, this.cacheFileName(url)), JSON.stringify(cache, null, 2));
   }
 
   private loadInstalled(): void {
