@@ -123,21 +123,35 @@ describe('AcpTransport', () => {
     expect(handler).toHaveBeenCalledWith('agent/heartbeat', {});
   });
 
-  it('emits parseError for malformed JSON', async () => {
+  it('emits framingError for non-JSON input', async () => {
     const transport = new AcpTransport({ command: 'test-agent' });
-    const parseErrorHandler = vi.fn();
-    transport.on('parseError', parseErrorHandler);
+    const framingHandler = vi.fn();
+    transport.on('framingError', framingHandler);
     transport.start();
 
     mock.stdout.push('this is not json\n');
 
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    expect(parseErrorHandler).toHaveBeenCalledTimes(1);
-    expect(parseErrorHandler).toHaveBeenCalledWith(
+    expect(framingHandler).toHaveBeenCalledTimes(1);
+    expect(framingHandler).toHaveBeenCalledWith(
       'this is not json',
       expect.any(Error),
     );
+  });
+
+  it('emits invalidMessage for valid JSON that is not JSON-RPC', async () => {
+    const transport = new AcpTransport({ command: 'test-agent' });
+    const invalidHandler = vi.fn();
+    transport.on('invalidMessage', invalidHandler);
+    transport.start();
+
+    mock.stdout.push('{"foo":"bar"}\n');
+
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    expect(invalidHandler).toHaveBeenCalledTimes(1);
+    expect(invalidHandler).toHaveBeenCalledWith({ foo: 'bar' });
   });
 
   it('rejects pending requests when process exits', async () => {

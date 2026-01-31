@@ -67,6 +67,17 @@ export class LifecycleManager {
     const transport = new AcpTransport({ command, args, env, requestTimeoutMs: 60_000 });
     transport.start();
 
+    transport.on('framingError', (line: string, err: unknown) => {
+      process.stderr.write(`[mcacp:${agentId}] Framing error: ${err instanceof Error ? err.message : err}\n`);
+      process.stderr.write(`[mcacp:${agentId}]   raw: ${line.slice(0, 200)}\n`);
+    });
+    transport.on('invalidMessage', (msg: unknown) => {
+      process.stderr.write(`[mcacp:${agentId}] Invalid JSON-RPC message: ${JSON.stringify(msg).slice(0, 200)}\n`);
+    });
+    transport.on('stderr', (data: string) => {
+      process.stderr.write(`[mcacp:${agentId}] ${data}`);
+    });
+
     try {
       const params: InitializeParams = {
         protocolVersion: protocolVersion ?? 1,

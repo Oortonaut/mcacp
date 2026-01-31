@@ -354,6 +354,20 @@ export async function createServer(configPath?: string) {
     server,
     async start() {
       const transport = new StdioServerTransport();
+      transport.onerror = (error) => {
+        if (error instanceof SyntaxError) {
+          // Not JSON — framing-level problem, other side isn't speaking the protocol
+          process.stderr.write(`[mcacp] Framing error: ${error.message}\n`);
+        } else {
+          // Valid JSON but not a valid JSON-RPC message
+          process.stderr.write(`[mcacp] Invalid JSON-RPC message: ${error.message}\n`);
+          process.stdout.write(JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32700, message: 'Parse error', data: error.message },
+          }) + '\n');
+        }
+      };
       await server.connect(transport);
     },
   };

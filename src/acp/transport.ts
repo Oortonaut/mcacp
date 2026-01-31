@@ -74,12 +74,16 @@ export class AcpTransport extends EventEmitter {
       rl.on('line', (line) => {
         const trimmed = line.trim();
         if (!trimmed) return;
+        let msg: JsonRpcMessage;
         try {
-          const msg = JSON.parse(trimmed) as JsonRpcMessage;
-          this.lastMessageAt = Date.now();
-          this.handleMessage(msg);
+          msg = JSON.parse(trimmed);
         } catch (err) {
-          this.emit('parseError', line, err);
+          this.emit('framingError', trimmed, err);
+          return;
+        }
+        this.lastMessageAt = Date.now();
+        if (!this.handleMessage(msg)) {
+          this.emit('invalidMessage', msg);
         }
       });
       rl.on('close', () => {
@@ -144,7 +148,7 @@ export class AcpTransport extends EventEmitter {
     this.process.stdin.write(JSON.stringify(msg) + '\n');
   }
 
-  private handleMessage(msg: JsonRpcMessage): void {
+  private handleMessage(msg: JsonRpcMessage): boolean {
     if ('id' in msg && msg.id !== undefined && msg.id !== null && ('result' in msg || 'error' in msg)) {
       const resp = msg as JsonRpcResponse;
       const idKey = typeof resp.id === 'number' ? resp.id : String(resp.id);
@@ -161,7 +165,7 @@ export class AcpTransport extends EventEmitter {
           pending.resolve(resp.result);
         }
       }
-      return;
+      return true;
     }
 
     if ('id' in msg && 'method' in msg && !('result' in msg) && !('error' in msg)) {
@@ -179,7 +183,7 @@ export class AcpTransport extends EventEmitter {
             this.send({ jsonrpc: '2.0', id: req.id, error } as JsonRpcResponse);
           });
       }
-      return;
+      return true;
     }
 
     if ('method' in msg && !('id' in msg)) {
@@ -188,8 +192,10 @@ export class AcpTransport extends EventEmitter {
         this.onNotification(notif.method, notif.params);
       }
       this.emit('notification', notif.method, notif.params);
-      return;
+      return true;
     }
+
+    return false;
   }
 
   private rejectAllPending(error: Error): void {
