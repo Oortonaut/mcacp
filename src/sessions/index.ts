@@ -104,20 +104,16 @@ export class SessionManager {
     return { sessionId, modes: result.modes };
   }
 
-  listSessions(agentId?: string): SessionFile[] {
-    const sessionDir = resolve(this.config.sessionDir);
-    if (!existsSync(sessionDir)) return [];
+  listSessions(agentId: string): SessionFile[] {
+    const safeAgentId = agentId.replace(/[^a-zA-Z0-9._@\/-]/g, '_');
+    const sessionsDir = resolve(this.config.sessionDir, safeAgentId, 'sessions');
+    if (!existsSync(sessionsDir)) return [];
     const results: SessionFile[] = [];
-    if (agentId) {
-      const agentDir = join(sessionDir, agentId);
-      if (existsSync(agentDir)) results.push(...this.readAgentSessions(agentDir));
-    } else {
-      try {
-        for (const entry of readdirSync(sessionDir, { withFileTypes: true })) {
-          if (entry.isDirectory()) results.push(...this.readAgentSessions(join(sessionDir, entry.name)));
-        }
-      } catch {}
-    }
+    try {
+      for (const f of readdirSync(sessionsDir).filter(f => f.endsWith('.json'))) {
+        try { results.push(JSON.parse(readFileSync(join(sessionsDir, f), 'utf-8'))); } catch {}
+      }
+    } catch {}
     return results;
   }
 
@@ -172,10 +168,9 @@ export class SessionManager {
   }
 
   private sessionFilePath(agentId: string, sessionId: SessionId): string {
-    // Sanitize agentId and sessionId to prevent path traversal
     const safeAgentId = agentId.replace(/[^a-zA-Z0-9._@\/-]/g, '_');
     const safeSessionId = sessionId.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath = resolve(this.config.sessionDir, safeAgentId, `${safeSessionId}.json`);
+    const filePath = resolve(this.config.sessionDir, safeAgentId, 'sessions', `${safeSessionId}.json`);
     const sessionRoot = resolve(this.config.sessionDir);
     if (!filePath.startsWith(sessionRoot + sep)) {
       throw new Error('Invalid agentId or sessionId: path traversal detected');
@@ -193,15 +188,5 @@ export class SessionManager {
     const path = this.sessionFilePath(agentId, sessionId);
     if (!existsSync(path)) return null;
     try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return null; }
-  }
-
-  private readAgentSessions(agentDir: string): SessionFile[] {
-    const results: SessionFile[] = [];
-    try {
-      for (const f of readdirSync(agentDir).filter(f => f.endsWith('.json'))) {
-        try { results.push(JSON.parse(readFileSync(join(agentDir, f), 'utf-8'))); } catch {}
-      }
-    } catch {}
-    return results;
   }
 }

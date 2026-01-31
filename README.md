@@ -46,8 +46,8 @@ Create `mcacp.json` in the working directory (or your home directory):
     "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json"
   ],
   "defaultPermissionPolicy": "operator",
-  "installDir": "./agents",
-  "sessionDir": "./sessions"
+  "installDir": "./.mcacp/agents",
+  "sessionDir": "./.mcacp"
 }
 ```
 
@@ -92,12 +92,12 @@ MCACP looks for configuration in this order:
   "defaultPermissionPolicy": "elicit",
 
   // Directory for session persistence files.
-  // Default: "./sessions"
-  "sessionDir": "./sessions",
+  // Default: "./.mcacp"
+  "sessionDir": "./.mcacp",
 
   // Directory for installed agent binaries and metadata.
-  // Default: "./agents"
-  "installDir": "./agents",
+  // Default: "./.mcacp/agents"
+  "installDir": "./.mcacp/agents",
 
   // Agent considered unresponsive after this many ms without a message.
   // Default: 60000 (1 minute)

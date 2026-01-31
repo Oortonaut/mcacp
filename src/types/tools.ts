@@ -234,9 +234,8 @@ export const LoadSessionInputSchema = z.object({
 export const ListSessionsInputSchema = z.object({
   agentId: z
     .string()
-    .optional()
     .describe(
-      'When provided, only sessions belonging to this agent are returned.',
+      'Agent ID to list sessions for.',
     ),
 });
 
@@ -414,7 +413,7 @@ export const loadSession: ToolDefinition = {
 export const listSessions: ToolDefinition = {
   name: 'list_sessions',
   description:
-    'List all stored ACP sessions. Optionally filter by agent identifier. Returns session metadata ' +
+    'List stored ACP sessions for a given agent. Returns session metadata ' +
     'including session id, owning agent, creation time, and current status.',
   inputSchema: ListSessionsInputSchema,
 };

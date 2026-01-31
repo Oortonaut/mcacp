@@ -33,9 +33,9 @@ export const McacpConfigSchema = z.object({
   /** Default permission policy */
   defaultPermissionPolicy: PermissionPolicySchema.default('elicit'),
   /** Directory for session persistence files */
-  sessionDir: z.string().default('./sessions'),
+  sessionDir: z.string().default('./.mcacp'),
   /** Directory for installed agent binaries */
-  installDir: z.string().default('./agents'),
+  installDir: z.string().default('./.mcacp/agents'),
   /** Nagle timeout (ms) for batching text chunk events. 0 = disabled (push every chunk immediately). */
   promptConsolidateMs: z.number().min(0).default(5000),
   /** Heartbeat timeout in ms — agent considered unresponsive after this */

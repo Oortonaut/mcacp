@@ -28,8 +28,8 @@ describe('loadConfig', () => {
     ]);
     expect(config.defaultPermissionPolicy).toBe('elicit');
     expect(config.defaultAutoReapMs).toBe(300000);
-    expect(config.sessionDir).toBe('./sessions');
-    expect(config.installDir).toBe('./agents');
+    expect(config.sessionDir).toBe('./.mcacp');
+    expect(config.installDir).toBe('./.mcacp/agents');
     expect(config.agent_servers).toEqual({});
     expect(config.clientInfo).toEqual({
       name: 'mcacp',
@@ -53,8 +53,8 @@ describe('getAgentConfig', () => {
     },
     defaultAutoReapMs: 300000,
     defaultPermissionPolicy: 'elicit',
-    sessionDir: './sessions',
-    installDir: './agents',
+    sessionDir: './.mcacp',
+    installDir: './.mcacp/agents',
     heartbeatTimeoutMs: 60000,
     clientInfo: { name: 'mcacp', version: '0.1.0', title: 'MCACP Bridge' },
   };

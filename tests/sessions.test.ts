@@ -14,7 +14,7 @@ function makeConfig(sessionDir: string): McacpConfig {
     defaultAutoReapMs: 300000,
     defaultPermissionPolicy: 'elicit',
     sessionDir,
-    installDir: './agents',
+    installDir: './.mcacp/agents',
     heartbeatTimeoutMs: 60000,
     clientInfo: { name: 'mcacp', version: '0.1.0', title: 'MCACP Bridge' },
   };
@@ -83,7 +83,7 @@ describe('SessionManager', () => {
     expect(session.pendingPermission).toBeNull();
 
     // Session file should exist on disk
-    const filePath = join(tempDir, 'agent-1', `${sessionId}.json`);
+    const filePath = join(tempDir, 'agent-1', 'sessions', `${sessionId}.json`);
     expect(existsSync(filePath)).toBe(true);
 
     const saved: SessionFile = JSON.parse(readFileSync(filePath, 'utf-8'));
@@ -127,7 +127,7 @@ describe('SessionManager', () => {
     );
 
     // File should have closedAt set
-    const filePath = join(tempDir, 'agent-1', `${sessionId}.json`);
+    const filePath = join(tempDir, 'agent-1', 'sessions', `${sessionId}.json`);
     const saved: SessionFile = JSON.parse(readFileSync(filePath, 'utf-8'));
     expect(saved.closedAt).toBeDefined();
     expect(saved.lastActiveAt).toBeDefined();
@@ -182,29 +182,7 @@ describe('SessionManager', () => {
     const missingConfig = makeConfig(join(tempDir, 'nonexistent-dir'));
     const mgr = new SessionManager(missingConfig, lifecycle);
 
-    const sessions = mgr.listSessions();
+    const sessions = mgr.listSessions('agent-1');
     expect(sessions).toEqual([]);
-  });
-
-  it('listSessions without agentId returns all agents sessions', async () => {
-    // Add a second agent
-    const handle2 = makeMockHandle('agent-2');
-    handles.set('agent-2', handle2);
-
-    const mgr = new SessionManager(config, lifecycle);
-    const handle1 = handles.get('agent-1')!;
-
-    (handle1.transport.request as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ sessionId: 'a1-sess' });
-    await mgr.newSession('agent-1', '/tmp/work');
-
-    (handle2.transport.request as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ sessionId: 'a2-sess' });
-    await mgr.newSession('agent-2', '/tmp/work');
-
-    const mgr2 = new SessionManager(config, lifecycle);
-    const sessions = mgr2.listSessions();
-
-    expect(sessions.length).toBe(2);
-    const agentIds = sessions.map(s => s.agentId).sort();
-    expect(agentIds).toEqual(['agent-1', 'agent-2']);
   });
 });

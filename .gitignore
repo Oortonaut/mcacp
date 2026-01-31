@@ -2,8 +2,7 @@ node_modules
 dist
 *.tgz
 .env
-/sessions/
-agents/
+/.mcacp/
 task-graph/
 task-graph.log
 .claude/

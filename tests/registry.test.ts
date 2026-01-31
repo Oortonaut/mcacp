@@ -26,7 +26,7 @@ function makeConfig(overrides?: Partial<McacpConfig>): McacpConfig {
     agent_servers: {},
     defaultAutoReapMs: 300000,
     defaultPermissionPolicy: 'elicit',
-    sessionDir: './sessions',
+    sessionDir: './.mcacp',
     installDir: './test-agents',
     heartbeatTimeoutMs: 60000,
     clientInfo: { name: 'mcacp', version: '0.1.0', title: 'MCACP Bridge' },

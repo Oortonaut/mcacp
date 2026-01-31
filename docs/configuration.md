@@ -33,8 +33,8 @@ All other fields use the highest-priority value.
   ],
   "defaultAutoReapMs": 300000,
   "defaultPermissionPolicy": "elicit",
-  "sessionDir": "./sessions",
-  "installDir": "./agents",
+  "sessionDir": "./.mcacp",
+  "installDir": "./.mcacp/agents",
   "promptConsolidateMs": 5000,
   "heartbeatTimeoutMs": 60000,
   "clientInfo": {
@@ -121,7 +121,7 @@ https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json
 ```
 
 Use `registry_search` to browse, `agent_install` to install from registry.
-Registry-installed agents are stored in `installDir` (default: `./agents/`).
+Registry-installed agents are stored in `installDir` (default: `./.mcacp/agents/`).
 
 ## Permission Policies
 
@@ -148,6 +148,17 @@ Configure via `promptConsolidateMs` (default: `5000`ms). Set to `0` to disable c
 
 ## Session Storage
 
-Sessions are persisted as JSON files in `sessionDir` (default: `./sessions/`).
-One file per session at `{sessionDir}/{agentId}/{sessionId}.json`.
+Sessions are persisted as JSON files under `sessionDir` (default: `./.mcacp`).
+Each agent gets its own subdirectory with a `sessions` folder:
+
+```
+.mcacp/<agent-name>/sessions/<sessionId>.json
+```
+
+For example, an agent named `my-agent` with session `abc123` would be stored at:
+```
+.mcacp/my-agent/sessions/abc123.json
+```
+
+Installed agent binaries live in `.mcacp/agents/`.
 Sessions survive restarts and can be resumed with `load_session`.

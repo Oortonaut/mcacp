@@ -194,7 +194,7 @@ export async function createServer(configPath?: string) {
   server.tool(
     'list_sessions',
     'List stored sessions. Does not require the agent to be running.',
-    { agentId: z.string().optional().describe('Filter by agent ID') },
+    { agentId: z.string().describe('Agent ID to list sessions for') },
     async ({ agentId }) => ({
       content: [{ type: 'text' as const, text: JSON.stringify(sessions.listSessions(agentId), null, 2) }],
     }),
