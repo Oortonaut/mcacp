@@ -1,0 +1,9 @@
+node_modules
+dist
+*.tgz
+.env
+sessions/
+agents/
+task-graph/
+task-graph.log
+.claude/
