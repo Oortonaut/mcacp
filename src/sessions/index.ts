@@ -110,7 +110,7 @@ export class SessionManager {
   }
 
   listSessions(agentId: string): SessionFile[] {
-    const safeAgentId = agentId.replace(/[^a-zA-Z0-9._@\/-]/g, '_');
+    const safeAgentId = agentId.replace(/[^a-zA-Z0-9._@/-]/g, '_');
     const sessionsDir = resolve(this.config.sessionDir, safeAgentId, 'sessions');
     if (!existsSync(sessionsDir)) return [];
     const results: SessionFile[] = [];
@@ -173,7 +173,7 @@ export class SessionManager {
   }
 
   private sessionFilePath(agentId: string, sessionId: SessionId): string {
-    const safeAgentId = agentId.replace(/[^a-zA-Z0-9._@\/-]/g, '_');
+    const safeAgentId = agentId.replace(/[^a-zA-Z0-9._@/-]/g, '_');
     const safeSessionId = sessionId.replace(/[^a-zA-Z0-9._-]/g, '_');
     const filePath = resolve(this.config.sessionDir, safeAgentId, 'sessions', `${safeSessionId}.json`);
     const sessionRoot = resolve(this.config.sessionDir);
