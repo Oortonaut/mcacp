@@ -19,7 +19,7 @@ export async function createServer(configPath?: string) {
   const lifecycle = new LifecycleManager(config, registry.getInstalled());
   const sessions = new SessionManager(config, lifecycle);
   const permissions = new PermissionEngine();
-  const promptHandler = new PromptHandler(lifecycle, sessions, permissions);
+  const promptHandler = new PromptHandler(lifecycle, sessions, permissions, config);
   const agentRequests = new AgentRequestHandler();
 
   const server = new McpServer({ name: 'mcacp', version: '0.1.0' });

@@ -2,7 +2,7 @@ node_modules
 dist
 *.tgz
 .env
-sessions/
+/sessions/
 agents/
 task-graph/
 task-graph.log

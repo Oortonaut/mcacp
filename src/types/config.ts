@@ -36,6 +36,8 @@ export const McacpConfigSchema = z.object({
   sessionDir: z.string().default('./sessions'),
   /** Directory for installed agent binaries */
   installDir: z.string().default('./agents'),
+  /** Nagle timeout (ms) for batching text chunk events. 0 = disabled (push every chunk immediately). */
+  promptConsolidateMs: z.number().min(0).default(5000),
   /** Heartbeat timeout in ms — agent considered unresponsive after this */
   heartbeatTimeoutMs: z.number().min(0).default(60000),
   /** MCACP client info sent during ACP initialize */

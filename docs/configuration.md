@@ -35,6 +35,7 @@ All other fields use the highest-priority value.
   "defaultPermissionPolicy": "elicit",
   "sessionDir": "./sessions",
   "installDir": "./agents",
+  "promptConsolidateMs": 5000,
   "heartbeatTimeoutMs": 60000,
   "clientInfo": {
     "name": "mcacp",
@@ -43,6 +44,9 @@ All other fields use the highest-priority value.
   }
 }
 ```
+
+**Note:** `cwd` is not a config-level field — it's set per-session via `new_session` / `load_session`.
+Tool-call events (`tool_call`, `tool_call_update`) are surfaced in the event stream when the agent emits them.
 
 ## agent_servers
 
@@ -129,6 +133,18 @@ Registry-installed agents are stored in `installDir` (default: `./agents/`).
 | `operator` | Surfaces as `permission_request` events — the calling agent decides |
 
 Set per-agent via `agent_servers[id].permissionPolicy` or globally via `defaultPermissionPolicy`.
+
+## Event Consolidation
+
+MCACP uses Nagle-style batching for text chunk events (`agent_message_chunk`, `agent_thought_chunk`).
+Instead of forwarding every individual chunk, text is accumulated and flushed as consolidated batches.
+
+Flush triggers:
+- The accumulated text contains a newline
+- The consolidation timeout expires
+- A non-chunk event arrives (tool_call, complete, error, permission_request)
+
+Configure via `promptConsolidateMs` (default: `5000`ms). Set to `0` to disable consolidation and push every chunk immediately.
 
 ## Session Storage
 

@@ -1,0 +1,271 @@
+import type {
+  SessionId, SessionUpdate, SessionPromptResult, ContentBlock,
+  SessionUpdateNotification, StopReason, RequestPermissionParams,
+} from '../types/acp.js';
+import type { AgentHandle } from '../acp/lifecycle.js';
+import type { McacpConfig } from '../types/config.js';
+import type { ActiveSession, PromptEvent } from './index.js';
+import { LifecycleManager } from '../acp/lifecycle.js';
+import { SessionManager } from './index.js';
+import { PermissionEngine } from '../permissions/index.js';
+
+export class PromptHandler {
+  constructor(
+    private lifecycle: LifecycleManager,
+    private sessions: SessionManager,
+    private permissions: PermissionEngine,
+    private config: McacpConfig,
+  ) {}
+
+  /**
+   * Send a prompt to an ACP session. Returns immediately after dispatching.
+   * The session enters "prompted" state; use prompt_events or prompt to consume events.
+   */
+  promptStart(sessionId: SessionId, promptContent: string | ContentBlock[]): { status: 'prompted' } {
+    const session = this.sessions.getSession(sessionId);
+    if (session.promptState === 'prompted') {
+      throw new Error(`Session "${sessionId}" already has an active prompt`);
+    }
+    const handle = this.lifecycle.getAgent(session.agentId);
+
+    const blocks: ContentBlock[] = typeof promptContent === 'string'
+      ? [{ type: 'text', text: promptContent }]
+      : promptContent;
+
+    session.promptState = 'prompted';
+    session.eventQueue = [];
+    this.resetChunkBuffer(session);
+
+    // Wire up notification collection
+    const prevNotificationHandler = handle.transport['onNotification'];
+    handle.transport.setNotificationHandler((method, params) => {
+      if (method === 'session/update') {
+        const notif = params as SessionUpdateNotification;
+        if (notif.sessionId === sessionId) {
+          this.pushEventConsolidated(session, { type: 'update', update: notif.update });
+          this.updateAgentStatus(handle, notif.update);
+        }
+      }
+    });
+
+    // Wire up permission request handling
+    const prevRequestHandler = handle.transport['onIncomingRequest'];
+    handle.transport.setRequestHandler(async (method, params, id) => {
+      if (method === 'session/request_permission') {
+        const permParams = params as RequestPermissionParams;
+        if (session.permissionPolicy === 'operator') {
+          return this.handleOperatorPermission(session, permParams);
+        }
+        return this.permissions.handle(session, handle, permParams, []);
+      }
+      if (prevRequestHandler) {
+        return prevRequestHandler(method, params, id);
+      }
+      throw new Error(`Unhandled agent request during prompt: ${method}`);
+    });
+
+    // Fire the prompt — don't await. Completion/error becomes an event.
+    handle.transport.request('session/prompt', {
+      sessionId, prompt: blocks,
+    }).then((result) => {
+      const r = result as SessionPromptResult;
+      this.sessions.touchSession(sessionId);
+      this.flushChunkBuffer(session);
+      this.pushEvent(session, { type: 'complete', stopReason: r.stopReason });
+      session.promptState = 'idle';
+    }).catch((err) => {
+      this.flushChunkBuffer(session);
+      this.pushEvent(session, { type: 'error', message: err?.message ?? String(err) });
+      session.promptState = 'idle';
+    }).finally(() => {
+      if (prevRequestHandler) handle.transport.setRequestHandler(prevRequestHandler);
+      if (prevNotificationHandler) handle.transport.setNotificationHandler(prevNotificationHandler);
+    });
+
+    return { status: 'prompted' };
+  }
+
+  /**
+   * Non-blocking poll. Returns all queued events (may be empty).
+   */
+  promptEvents(sessionId: SessionId): { events: PromptEvent[] } {
+    const session = this.sessions.getSession(sessionId);
+    const events = session.eventQueue.splice(0);
+    return { events };
+  }
+
+  /**
+   * Blocking wait. Returns when at least one event is available.
+   * If the queue already has events, returns immediately.
+   */
+  prompt(sessionId: SessionId): Promise<{ events: PromptEvent[] }> {
+    const session = this.sessions.getSession(sessionId);
+
+    if (session.eventQueue.length > 0) {
+      return Promise.resolve({ events: session.eventQueue.splice(0) });
+    }
+
+    return new Promise((resolve) => {
+      session.waiters.push((events) => resolve({ events }));
+    });
+  }
+
+  /**
+   * Grant a pending operator permission. The agent resumes and new events
+   * continue flowing into the queue.
+   */
+  grantPermission(sessionId: SessionId, toolCallId: string, optionId: string): void {
+    const session = this.sessions.getSession(sessionId);
+    if (!session.pendingPermission) throw new Error(`No pending permission for session "${sessionId}"`);
+    if (session.pendingPermission.toolCallId !== toolCallId) {
+      throw new Error(`Pending permission is for "${session.pendingPermission.toolCallId}", not "${toolCallId}"`);
+    }
+    session.pendingPermission.resolve({ selected: { optionId } });
+    session.pendingPermission = null;
+  }
+
+  cancel(sessionId: SessionId): void {
+    const session = this.sessions.getSession(sessionId);
+    const handle = this.lifecycle.getAgent(session.agentId);
+    handle.transport.notify('session/cancel', { sessionId });
+  }
+
+  async setMode(sessionId: SessionId, modeId: string): Promise<void> {
+    const session = this.sessions.getSession(sessionId);
+    const handle = this.lifecycle.getAgent(session.agentId);
+    await handle.transport.request('session/set_mode', { sessionId, modeId });
+  }
+
+  // ---- Internal helpers ----
+
+  /**
+   * Nagle-style consolidation: buffer text chunk events and flush as batches.
+   * Non-chunk events flush any pending buffer first, then push immediately.
+   */
+  private pushEventConsolidated(session: ActiveSession, event: PromptEvent): void {
+    if (event.type !== 'update') {
+      // Non-update events (permission_request, complete, error) — flush and push
+      this.flushChunkBuffer(session);
+      this.pushEvent(session, event);
+      return;
+    }
+
+    const update = event.update;
+    if (!('sessionUpdate' in update)) {
+      this.flushChunkBuffer(session);
+      this.pushEvent(session, event);
+      return;
+    }
+
+    const updateType = update.sessionUpdate;
+    const isChunk = updateType === 'agent_message_chunk' || updateType === 'agent_thought_chunk';
+
+    if (!isChunk || this.config.promptConsolidateMs === 0) {
+      // Non-chunk update or consolidation disabled — flush and push
+      this.flushChunkBuffer(session);
+      this.pushEvent(session, event);
+      return;
+    }
+
+    // Extract text from the content block
+    const text = update.content.type === 'text' ? update.content.text : '';
+    if (!text) {
+      // Non-text content block (image, etc.) — can't consolidate, flush and push
+      this.flushChunkBuffer(session);
+      this.pushEvent(session, event);
+      return;
+    }
+
+    // If buffer has a different update type, flush first
+    if (session.chunkBuffer && session.chunkBuffer.updateType !== updateType) {
+      this.flushChunkBuffer(session);
+    }
+
+    // Append to buffer
+    if (!session.chunkBuffer) {
+      session.chunkBuffer = { text: '', updateType };
+    }
+    session.chunkBuffer.text += text;
+
+    // Flush if text contains a newline
+    if (session.chunkBuffer.text.includes('\n')) {
+      this.flushChunkBuffer(session);
+      return;
+    }
+
+    // Set/reset the Nagle timer
+    if (session.chunkTimer) clearTimeout(session.chunkTimer);
+    session.chunkTimer = setTimeout(() => {
+      this.flushChunkBuffer(session);
+    }, this.config.promptConsolidateMs);
+  }
+
+  /** Flush the accumulated chunk buffer as a single consolidated update event. */
+  private flushChunkBuffer(session: ActiveSession): void {
+    if (session.chunkTimer) {
+      clearTimeout(session.chunkTimer);
+      session.chunkTimer = null;
+    }
+    if (!session.chunkBuffer) return;
+
+    const { text, updateType } = session.chunkBuffer;
+    session.chunkBuffer = null;
+
+    this.pushEvent(session, {
+      type: 'update',
+      update: {
+        sessionUpdate: updateType as 'agent_message_chunk' | 'agent_thought_chunk',
+        content: { type: 'text', text },
+      },
+    });
+  }
+
+  /** Reset chunk buffer state (called at prompt start). */
+  private resetChunkBuffer(session: ActiveSession): void {
+    if (session.chunkTimer) clearTimeout(session.chunkTimer);
+    session.chunkTimer = null;
+    session.chunkBuffer = null;
+  }
+
+  private pushEvent(session: ActiveSession, event: PromptEvent): void {
+    if (session.waiters.length > 0) {
+      const waiter = session.waiters.shift()!;
+      waiter([event]);
+    } else {
+      session.eventQueue.push(event);
+    }
+  }
+
+  private handleOperatorPermission(
+    session: ActiveSession,
+    params: RequestPermissionParams,
+  ): Promise<{ selected: { optionId: string } } | { cancelled: Record<string, never> }> {
+    this.pushEvent(session, {
+      type: 'permission_request',
+      toolCallId: params.toolCall.toolCallId,
+      title: params.toolCall.title,
+      options: params.options.map(o => ({ optionId: o.optionId, name: o.name, kind: o.kind })),
+    });
+
+    return new Promise((resolve) => {
+      session.pendingPermission = {
+        toolCallId: params.toolCall.toolCallId,
+        title: params.toolCall.title,
+        options: params.options.map(o => ({ optionId: o.optionId, name: o.name, kind: o.kind })),
+        resolve,
+      };
+    });
+  }
+
+  private updateAgentStatus(handle: AgentHandle, update: SessionUpdate): void {
+    if (!('sessionUpdate' in update)) return;
+    if (update.sessionUpdate === 'tool_call') {
+      handle.status = { text: `Tool: ${update.title}`, updatedAt: Date.now() };
+    } else if (update.sessionUpdate === 'agent_message_chunk') {
+      handle.status = { text: 'Responding...', updatedAt: Date.now() };
+    } else if (update.sessionUpdate === 'plan') {
+      const active = update.entries.find(e => e.status === 'in_progress');
+      if (active) handle.status = { text: `Plan: ${active.content}`, updatedAt: Date.now() };
+    }
+  }
+}
