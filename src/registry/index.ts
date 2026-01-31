@@ -30,9 +30,13 @@ interface RegistryCache {
   url: string;
   /** Raw registry response, preserved so all data (extensions, metadata, etc.) survives disk caching. */
   raw?: unknown;
+  etag?: string;
+  lastModified?: string;
+  /** TTL in ms derived from Cache-Control max-age; falls back to DEFAULT_TTL_MS. */
+  maxAge?: number;
 }
 
-const CACHE_TTL_MS = 3600_000;
+const DEFAULT_TTL_MS = 300_000;
 
 export class RegistryManager {
   private caches = new Map<string, RegistryCache>();
@@ -155,13 +159,34 @@ export class RegistryManager {
 
   private async fetchRegistry(url: string): Promise<void> {
     const cached = this.caches.get(url);
-    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return;
+    const ttl = cached?.maxAge ?? DEFAULT_TTL_MS;
+    if (cached && Date.now() - cached.fetchedAt < ttl) return;
     try {
-      const response = await fetch(url);
+      const headers: Record<string, string> = {};
+      if (cached?.etag) headers['If-None-Match'] = cached.etag;
+      else if (cached?.lastModified) headers['If-Modified-Since'] = cached.lastModified;
+
+      const response = await fetch(url, { headers });
+
+      if (response.status === 304 && cached) {
+        cached.fetchedAt = Date.now();
+        this.saveCacheToDisk(url, cached);
+        return;
+      }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
       const data = await response.json();
       const entries: RegistryEntry[] = Array.isArray(data) ? data : (data.agents ?? []);
       const cache: RegistryCache = { entries, fetchedAt: Date.now(), url, raw: data };
+
+      const etag = response.headers.get('etag');
+      if (etag) cache.etag = etag;
+      const lastMod = response.headers.get('last-modified');
+      if (lastMod) cache.lastModified = lastMod;
+      const cc = response.headers.get('cache-control');
+      const maxAgeMatch = cc?.match(/max-age=(\d+)/);
+      if (maxAgeMatch) cache.maxAge = Number(maxAgeMatch[1]) * 1000;
+
       this.caches.set(url, cache);
       this.saveCacheToDisk(url, cache);
     } catch (err) {
