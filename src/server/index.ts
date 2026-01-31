@@ -23,7 +23,7 @@ export async function createServer(configPath?: string) {
   const promptHandler = new PromptHandler(lifecycle, sessions, permissions, config);
   const agentRequests = new AgentRequestHandler();
 
-  const server = new McpServer({ name: 'mcacp', version: '0.1.1' });
+  const server = new McpServer({ name: 'mcacp', version: '0.1.2' });
 
   permissions.setElicitationSender(async (message, schema) => {
     const result = await server.server.elicitInput({

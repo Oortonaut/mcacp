@@ -19,7 +19,20 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run build
+
+      # Publish to npm
       - run: npm publish --provenance --access public
+
+      # Publish to MCP Registry
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish
+
+      # GitHub Release
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
