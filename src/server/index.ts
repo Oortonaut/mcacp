@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import type { ElicitRequestFormParams } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -23,6 +24,17 @@ export async function createServer(configPath?: string) {
   const agentRequests = new AgentRequestHandler();
 
   const server = new McpServer({ name: 'mcacp', version: '0.1.0' });
+
+  permissions.setElicitationSender(async (message, schema) => {
+    const result = await server.server.elicitInput({
+      message,
+      requestedSchema: schema as ElicitRequestFormParams['requestedSchema'],
+    });
+    return {
+      action: result.action,
+      content: result.content as Record<string, unknown> | undefined,
+    };
+  });
 
   // ---- Registry tools ----
 
