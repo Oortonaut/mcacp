@@ -13,9 +13,11 @@ export interface InstalledAgent {
   command: string;
   args?: string[];
   env?: Record<string, string>;
-  distribution: 'npx' | 'binary';
+  distribution: 'npx' | 'binary' | 'local' | 'import';
   installedAt: string;
   registryUrl?: string;
+  /** Where this agent was registered from */
+  source?: string;
 }
 
 export interface AgentHandle {

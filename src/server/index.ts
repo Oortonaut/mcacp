@@ -1,7 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { loadConfig } from '../config/index.js';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadConfig, discoverEditorAgents } from '../config/index.js';
 import { RegistryManager } from '../registry/index.js';
 import { LifecycleManager } from '../acp/lifecycle.js';
 import { SessionManager } from '../sessions/index.js';
@@ -76,6 +79,33 @@ export async function createServer(configPath?: string) {
     async () => ({
       content: [{ type: 'text' as const, text: JSON.stringify(await registry.checkUpgrades(), null, 2) }],
     }),
+  );
+
+  server.tool(
+    'discover_agents',
+    'Scan editor configs (Zed settings.json, JetBrains acp.json) for ACP agents. Returns agents with command/args/env and source. To import, add them to agent_servers in your mcacp.json and call reload_config.',
+    {},
+    async () => ({
+      content: [{ type: 'text' as const, text: JSON.stringify(discoverEditorAgents(), null, 2) }],
+    }),
+  );
+
+  server.tool(
+    'reload_config',
+    'Reload configuration from disk. Use after editing mcacp.json to pick up new agent_servers entries or changed settings. Returns the new config.',
+    {},
+    async () => {
+      const newConfig = loadConfig(configPath);
+      // Propagate to all managers
+      Object.assign(config, newConfig);
+      lifecycle.updateInstalledAgents(registry.getInstalled());
+      return { content: [{ type: 'text' as const, text: JSON.stringify({
+        agent_servers: Object.keys(newConfig.agent_servers),
+        registries: newConfig.registries,
+        defaultPermissionPolicy: newConfig.defaultPermissionPolicy,
+        reloaded: true,
+      }, null, 2) }] };
+    },
   );
 
   // ---- Lifecycle tools ----
@@ -299,6 +329,25 @@ export async function createServer(configPath?: string) {
       lifecycle.getAgent(agentId).status = { text: status, updatedAt: Date.now() };
       return { content: [{ type: 'text' as const, text: `Status set for ${agentId}: ${status}` }] };
     },
+  );
+
+  // ---- Resources ----
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const docsDir = resolve(__dirname, '../../docs');
+
+  server.resource(
+    'configuration-guide',
+    'docs://configuration.md',
+    { description: 'MCACP configuration guide — config file locations, schema, permission policies, and editor import' },
+    async (uri) => ({
+      contents: [{
+        uri: uri.href,
+        mimeType: 'text/markdown',
+        text: readFileSync(resolve(docsDir, 'configuration.md'), 'utf-8'),
+      }],
+    }),
   );
 
   return {

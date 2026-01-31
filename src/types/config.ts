@@ -3,29 +3,31 @@ import { z } from 'zod';
 export const PermissionPolicySchema = z.enum(['elicit', 'allow_all', 'deny_all', 'operator']);
 export type PermissionPolicy = z.infer<typeof PermissionPolicySchema>;
 
-export const AgentConfigSchema = z.object({
-  /** Auto-reap timeout in milliseconds. 0 = disabled. Default: 300000 (5 min) */
-  autoReapMs: z.number().min(0).default(300000),
-  /** Default permission policy for new sessions with this agent */
-  permissionPolicy: PermissionPolicySchema.default('elicit'),
-  /** Custom install path override */
-  installPath: z.string().optional(),
-  /** Custom command override (skip registry lookup) */
+/** Per-agent config — matches the Zed/JetBrains agent_servers schema at its core. */
+export const AgentServerSchema = z.object({
+  /** Executable command to run */
   command: z.string().optional(),
-  /** Custom args override */
+  /** Command-line arguments */
   args: z.array(z.string()).optional(),
   /** Environment variables */
   env: z.record(z.string()).optional(),
+  // -- MCACP extensions (not in editor configs) --
+  /** Auto-reap timeout in milliseconds. 0 = disabled. */
+  autoReapMs: z.number().min(0).optional(),
+  /** Default permission policy for new sessions with this agent */
+  permissionPolicy: PermissionPolicySchema.optional(),
+  /** Custom install path override */
+  installPath: z.string().optional(),
 });
-export type AgentConfig = z.infer<typeof AgentConfigSchema>;
+export type AgentServer = z.infer<typeof AgentServerSchema>;
 
 export const McacpConfigSchema = z.object({
   /** Registry URLs to fetch agent listings from */
   registries: z.array(z.string().url()).default(
     ['https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json'],
   ),
-  /** Per-agent configuration overrides */
-  agents: z.record(z.string(), AgentConfigSchema).default({}),
+  /** Per-agent configuration — same key as Zed and JetBrains */
+  agent_servers: z.record(z.string(), AgentServerSchema).default({}),
   /** Default auto-reap timeout in ms */
   defaultAutoReapMs: z.number().min(0).default(300000),
   /** Default permission policy */

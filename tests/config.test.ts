@@ -30,7 +30,7 @@ describe('loadConfig', () => {
     expect(config.defaultAutoReapMs).toBe(300000);
     expect(config.sessionDir).toBe('./sessions');
     expect(config.installDir).toBe('./agents');
-    expect(config.agents).toEqual({});
+    expect(config.agent_servers).toEqual({});
     expect(config.clientInfo).toEqual({
       name: 'mcacp',
       version: '0.1.0',
@@ -42,7 +42,7 @@ describe('loadConfig', () => {
 describe('getAgentConfig', () => {
   const baseConfig: McacpConfig = {
     registries: ['https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json'],
-    agents: {
+    agent_servers: {
       'my-agent': {
         autoReapMs: 60000,
         permissionPolicy: 'allow_all',

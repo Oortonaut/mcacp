@@ -23,7 +23,7 @@ const REGISTRY_URL = 'https://cdn.agentclientprotocol.com/registry/v1/latest/reg
 function makeConfig(overrides?: Partial<McacpConfig>): McacpConfig {
   return {
     registries: [REGISTRY_URL],
-    agents: {},
+    agent_servers: {},
     defaultAutoReapMs: 300000,
     defaultPermissionPolicy: 'elicit',
     sessionDir: './sessions',

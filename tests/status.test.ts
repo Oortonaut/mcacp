@@ -7,7 +7,7 @@ import type { McacpConfig } from '../src/types/config.js';
 function makeConfig(overrides?: Partial<McacpConfig>): McacpConfig {
   return {
     registries: ['https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json'],
-    agents: {},
+    agent_servers: {},
     defaultAutoReapMs: 300000,
     defaultPermissionPolicy: 'elicit',
     sessionDir: './sessions',
