@@ -6,3 +6,5 @@ dist
 task-graph/
 task-graph.log
 .claude/
+NUL
+.serena/
