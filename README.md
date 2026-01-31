@@ -2,7 +2,7 @@
 
 **Bridge any MCP client to any ACP coding agent.**
 
-MCACP is an [MCP](https://modelcontextprotocol.io/) server that speaks the [Agent Control Protocol](https://agentclientprotocol.com/) on behalf of your MCP host. It lets Claude Code, Zed, VS Code, or any MCP-compatible client spawn, manage, and interact with ACP coding agents — turning a single chat window into a multi-agent control plane.
+MCACP is an [MCP](https://modelcontextprotocol.io/) server that speaks the [Agent Client Protocol](https://agentclientprotocol.com/) on behalf of your MCP host. It lets Claude Code, Zed, VS Code, or any MCP-compatible client spawn, manage, and interact with ACP coding agents — turning a single chat window into a multi-agent control plane.
 
 ```
 MCP Client (Claude Code, Zed, VS Code, ...)
