@@ -1,6 +1,6 @@
 import type {
   SessionId, SessionUpdate, SessionPromptResult, ContentBlock,
-  SessionUpdateNotification, StopReason, RequestPermissionParams,
+  SessionUpdateNotification, StopReason, RequestPermissionParams, RequestId,
 } from '../types/acp.js';
 import type { AgentHandle } from '../acp/lifecycle.js';
 import type { McacpConfig } from '../types/config.js';
@@ -9,7 +9,17 @@ import { LifecycleManager } from '../acp/lifecycle.js';
 import { SessionManager } from './index.js';
 import { PermissionEngine } from '../permissions/index.js';
 
+/** Per-agent dispatch table for sessions with active prompts. */
+interface AgentDispatch {
+  sessions: Map<SessionId, ActiveSession>;
+  /** The handler that was on the transport before we installed ours. */
+  prevNotificationHandler: ((method: string, params: unknown) => void) | null;
+  prevRequestHandler: ((method: string, params: unknown, id: RequestId) => Promise<unknown>) | null;
+}
+
 export class PromptHandler {
+  private dispatchers = new Map<string, AgentDispatch>();
+
   constructor(
     private lifecycle: LifecycleManager,
     private sessions: SessionManager,
@@ -36,33 +46,8 @@ export class PromptHandler {
     session.eventQueue = [];
     this.resetChunkBuffer(session);
 
-    // Wire up notification collection
-    const prevNotificationHandler = handle.transport['onNotification'];
-    handle.transport.setNotificationHandler((method, params) => {
-      if (method === 'session/update') {
-        const notif = params as SessionUpdateNotification;
-        if (notif.sessionId === sessionId) {
-          this.pushEventConsolidated(session, { type: 'update', update: notif.update });
-          this.updateAgentStatus(handle, notif.update);
-        }
-      }
-    });
-
-    // Wire up permission request handling
-    const prevRequestHandler = handle.transport['onIncomingRequest'];
-    handle.transport.setRequestHandler(async (method, params, id) => {
-      if (method === 'session/request_permission') {
-        const permParams = params as RequestPermissionParams;
-        if (session.permissionPolicy === 'operator') {
-          return this.handleOperatorPermission(session, permParams);
-        }
-        return this.permissions.handle(session, handle, permParams, []);
-      }
-      if (prevRequestHandler) {
-        return prevRequestHandler(method, params, id);
-      }
-      throw new Error(`Unhandled agent request during prompt: ${method}`);
-    });
+    // Register this session in the agent's dispatch table
+    this.ensureDispatcher(handle, sessionId, session);
 
     // Fire the prompt — don't await. Completion/error becomes an event.
     handle.transport.request('session/prompt', {
@@ -73,13 +58,12 @@ export class PromptHandler {
       this.flushChunkBuffer(session);
       this.pushEvent(session, { type: 'complete', stopReason: r.stopReason });
       session.promptState = 'idle';
+      this.unregisterSession(handle, sessionId);
     }).catch((err) => {
       this.flushChunkBuffer(session);
       this.pushEvent(session, { type: 'error', message: err?.message ?? String(err) });
       session.promptState = 'idle';
-    }).finally(() => {
-      if (prevRequestHandler) handle.transport.setRequestHandler(prevRequestHandler);
-      if (prevNotificationHandler) handle.transport.setNotificationHandler(prevNotificationHandler);
+      this.unregisterSession(handle, sessionId);
     });
 
     return { status: 'prompted' };
@@ -134,6 +118,77 @@ export class PromptHandler {
     const session = this.sessions.getSession(sessionId);
     const handle = this.lifecycle.getAgent(session.agentId);
     await handle.transport.request('session/set_mode', { sessionId, modeId });
+  }
+
+  // ---- Dispatcher management ----
+
+  /**
+   * Ensure the agent has a central dispatch handler installed, and register
+   * the session in its dispatch table.
+   */
+  private ensureDispatcher(handle: AgentHandle, sessionId: SessionId, session: ActiveSession): void {
+    let dispatch = this.dispatchers.get(handle.agentId);
+    if (!dispatch) {
+      // First prompted session on this agent — install central handlers
+      const prevNotificationHandler = handle.transport['onNotification'] ?? null;
+      const prevRequestHandler = handle.transport['onIncomingRequest'] ?? null;
+      dispatch = { sessions: new Map(), prevNotificationHandler, prevRequestHandler };
+      this.dispatchers.set(handle.agentId, dispatch);
+
+      const d = dispatch; // stable reference for closures
+
+      handle.transport.setNotificationHandler((method, params) => {
+        if (method === 'session/update') {
+          const notif = params as SessionUpdateNotification;
+          const target = d.sessions.get(notif.sessionId);
+          if (target) {
+            this.pushEventConsolidated(target, { type: 'update', update: notif.update });
+            this.updateAgentStatus(handle, notif.update);
+            return;
+          }
+        }
+        if (d.prevNotificationHandler) d.prevNotificationHandler(method, params);
+      });
+
+      handle.transport.setRequestHandler(async (method, params, id) => {
+        if (method === 'session/request_permission') {
+          const permParams = params as RequestPermissionParams;
+          const target = d.sessions.get(permParams.sessionId);
+          if (target) {
+            if (target.permissionPolicy === 'operator') {
+              return this.handleOperatorPermission(target, permParams);
+            }
+            return this.permissions.handle(target, handle, permParams, []);
+          }
+        }
+        if (d.prevRequestHandler) {
+          return d.prevRequestHandler(method, params, id);
+        }
+        throw new Error(`Unhandled agent request during prompt: ${method}`);
+      });
+    }
+
+    dispatch.sessions.set(sessionId, session);
+  }
+
+  /**
+   * Remove a session from the dispatch table. If no sessions remain,
+   * restore the original handlers and tear down the dispatcher.
+   */
+  private unregisterSession(handle: AgentHandle, sessionId: SessionId): void {
+    const dispatch = this.dispatchers.get(handle.agentId);
+    if (!dispatch) return;
+
+    dispatch.sessions.delete(sessionId);
+    if (dispatch.sessions.size === 0) {
+      if (dispatch.prevNotificationHandler) {
+        handle.transport.setNotificationHandler(dispatch.prevNotificationHandler);
+      }
+      if (dispatch.prevRequestHandler) {
+        handle.transport.setRequestHandler(dispatch.prevRequestHandler);
+      }
+      this.dispatchers.delete(handle.agentId);
+    }
   }
 
   // ---- Internal helpers ----
@@ -228,11 +283,10 @@ export class PromptHandler {
   }
 
   private pushEvent(session: ActiveSession, event: PromptEvent): void {
+    session.eventQueue.push(event);
     if (session.waiters.length > 0) {
       const waiter = session.waiters.shift()!;
-      waiter([event]);
-    } else {
-      session.eventQueue.push(event);
+      waiter(session.eventQueue.splice(0));
     }
   }
 
