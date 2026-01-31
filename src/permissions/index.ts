@@ -11,11 +11,9 @@ export type ElicitationSender = (
 
 export class PermissionEngine {
   private elicitationSender: ElicitationSender | null = null;
-  private clientSupportsElicitation = false;
 
   setElicitationSender(sender: ElicitationSender): void {
     this.elicitationSender = sender;
-    this.clientSupportsElicitation = true;
   }
 
   async handle(
@@ -27,7 +25,7 @@ export class PermissionEngine {
     switch (session.permissionPolicy) {
       case 'allow_all': return this.handleAllowAll(params);
       case 'deny_all': return this.handleDenyAll(params);
-      case 'elicit': return this.handleElicit(params);
+      case 'elicit': return this.handleElicit(session, params);
       case 'operator': return this.handleOperator(session, params);
       default: return this.handleAllowAll(params);
     }
@@ -46,9 +44,12 @@ export class PermissionEngine {
     return { cancelled: {} };
   }
 
-  private async handleElicit(params: RequestPermissionParams): Promise<RequestPermissionOutcome> {
-    if (!this.clientSupportsElicitation || !this.elicitationSender) {
-      return this.handleAllowAll(params);
+  private async handleElicit(
+    session: ActiveSession,
+    params: RequestPermissionParams,
+  ): Promise<RequestPermissionOutcome> {
+    if (!this.elicitationSender) {
+      return this.handleOperator(session, params);
     }
 
     const message = `Agent requests permission: ${params.toolCall.title}`;
@@ -73,7 +74,8 @@ export class PermissionEngine {
       }
       return { cancelled: {} };
     } catch {
-      return { cancelled: {} };
+      // Host doesn't support elicitation — fall back to operator mode
+      return this.handleOperator(session, params);
     }
   }
 

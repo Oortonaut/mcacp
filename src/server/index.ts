@@ -282,6 +282,44 @@ export async function createServer(configPath?: string) {
   );
 
   server.tool(
+    'request_permission',
+    'Send an MCP elicitation to the outer host asking for a permission decision. Does not require a running agent or session.',
+    {
+      title: z.string().describe('Human-readable description of the action requesting permission'),
+      options: z.array(z.object({
+        optionId: z.string(),
+        name: z.string(),
+      })).optional().describe('Permission choices (defaults to Allow / Reject)'),
+    },
+    async ({ title, options }) => {
+      const choices = options ?? [
+        { optionId: 'allow', name: 'Allow' },
+        { optionId: 'reject', name: 'Reject' },
+      ];
+      const result = await server.server.elicitInput({
+        message: `Agent requests permission: ${title}`,
+        requestedSchema: {
+          type: 'object' as const,
+          properties: {
+            decision: {
+              type: 'string' as const,
+              title: 'Permission',
+              description: `Agent wants to: ${title}`,
+              enum: choices.map(o => o.optionId),
+              enumNames: choices.map(o => o.name),
+            },
+          },
+          required: ['decision'],
+        } as ElicitRequestFormParams['requestedSchema'],
+      });
+      return { content: [{ type: 'text' as const, text: JSON.stringify({
+        action: result.action,
+        decision: result.content?.decision ?? null,
+      }, null, 2) }] };
+    },
+  );
+
+  server.tool(
     'cancel',
     'Cancel an in-progress prompt.',
     { sessionId: z.string().describe('Session to cancel') },
