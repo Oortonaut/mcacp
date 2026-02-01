@@ -2,6 +2,7 @@ node_modules
 dist
 *.tgz
 .env
+.mcpregistry_*
 /.mcacp/
 task-graph/
 task-graph.log

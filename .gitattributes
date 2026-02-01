@@ -1,0 +1,16 @@
+# Source files — normalize to LF in repo, OS-native on checkout
+*.ts text=auto
+*.js text=auto
+*.json text=auto
+*.yaml text=auto
+*.yml text=auto
+*.md text=auto
+*.css text=auto
+*.html text=auto
+
+# Shell scripts — always LF
+*.sh text eol=lf
+
+# Windows scripts — always CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf

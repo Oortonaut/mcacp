@@ -1,7 +1,7 @@
 {
   "name": "mcacp",
-  "version": "0.1.2",
-  "mcpName": "io.github.oortonaut/mcacp",
+  "version": "0.1.3",
+  "mcpName": "io.github.Oortonaut/mcacp",
   "description": "MCP-to-ACP bridge — let any MCP client drive ACP coding agents",
   "type": "module",
   "main": "dist/index.js",

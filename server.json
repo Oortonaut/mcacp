@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.oortonaut/mcacp",
+  "name": "io.github.Oortonaut/mcacp",
   "description": "MCP-to-ACP bridge — let any MCP client drive ACP coding agents",
   "repository": {
     "url": "https://github.com/Oortonaut/mcacp",
     "source": "github"
   },
-  "version": "0.1.2",
+  "version": "0.1.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mcacp",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "transport": {
         "type": "stdio"
       }
