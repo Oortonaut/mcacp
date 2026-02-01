@@ -49,6 +49,7 @@ export class LifecycleManager {
     protocolVersion?: number,
     clientInfo?: Implementation,
     clientCapabilities?: InitializeParams['clientCapabilities'],
+    envOverrides?: Record<string, string>,
   ): Promise<{ protocolVersion: number; agentInfo?: Implementation; agentCapabilities: AgentCapabilities }> {
     if (this.agents.has(agentId)) {
       throw new Error(`Agent "${agentId}" is already running`);
@@ -58,7 +59,8 @@ export class LifecycleManager {
     const agentConfig = getAgentConfig(this.config, agentId);
     const command = agentConfig.command ?? installed?.command;
     const args = agentConfig.args ?? installed?.args ?? [];
-    const env = agentConfig.env ?? installed?.env;
+    const baseEnv = agentConfig.env ?? installed?.env;
+    const env = envOverrides ? { ...baseEnv, ...envOverrides } : baseEnv;
 
     if (!command) {
       throw new Error(`Agent "${agentId}" not installed and no command configured`);

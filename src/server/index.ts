@@ -137,9 +137,10 @@ export async function createServer(configPath?: string) {
         }).optional(),
         terminal: z.boolean().optional(),
       }).optional().describe('Client capabilities'),
+      env: z.record(z.string()).optional().describe('Environment variable overrides. Merged on top of config/installed env.'),
     },
-    async ({ agentId, protocolVersion, clientInfo, clientCapabilities }) => {
-      const result = await lifecycle.initialize(agentId, protocolVersion, clientInfo, clientCapabilities);
+    async ({ agentId, protocolVersion, clientInfo, clientCapabilities, env }) => {
+      const result = await lifecycle.initialize(agentId, protocolVersion, clientInfo, clientCapabilities, env);
       const handle = lifecycle.getAgent(agentId);
       handle.transport.setRequestHandler(async (method, params) => {
         if (method === 'session/request_permission') {
