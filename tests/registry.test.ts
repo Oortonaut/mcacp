@@ -29,9 +29,21 @@ function makeConfig(overrides?: Partial<McacpConfig>): McacpConfig {
     sessionDir: './.mcacp',
     installDir: './test-agents',
     heartbeatTimeoutMs: 60000,
+    promptConsolidateMs: 5000,
+    collectFeedback: false,
+    feedbackFile: './.mcacp/feedback.md',
     clientInfo: { name: 'mcacp', version: '0.1.0', title: 'MCACP Bridge' },
     ...overrides,
   };
+}
+
+function mockFetchJson(data: unknown) {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => data,
+    headers: { get: () => null },
+  }) as any;
 }
 
 const sampleEntries: RegistryEntry[] = [
@@ -103,10 +115,7 @@ describe('RegistryManager', () => {
   });
 
   it('install throws for unknown agent', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => sampleEntries,
-    }) as any;
+    globalThis.fetch = mockFetchJson(sampleEntries);
 
     const manager = new RegistryManager(makeConfig());
 
@@ -116,10 +125,7 @@ describe('RegistryManager', () => {
   });
 
   it('search returns results filtered by query', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => sampleEntries,
-    }) as any;
+    globalThis.fetch = mockFetchJson(sampleEntries);
 
     const manager = new RegistryManager(makeConfig());
     const results = await manager.search('claude');
@@ -131,10 +137,7 @@ describe('RegistryManager', () => {
   });
 
   it('search returns all compatible entries when no query given', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => sampleEntries,
-    }) as any;
+    globalThis.fetch = mockFetchJson(sampleEntries);
 
     const manager = new RegistryManager(makeConfig());
     const results = await manager.search();
@@ -148,10 +151,7 @@ describe('RegistryManager', () => {
   });
 
   it('search filters by description text', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => sampleEntries,
-    }) as any;
+    globalThis.fetch = mockFetchJson(sampleEntries);
 
     const manager = new RegistryManager(makeConfig());
     const results = await manager.search('pair programming');

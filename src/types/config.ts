@@ -40,6 +40,10 @@ export const McacpConfigSchema = z.object({
   promptConsolidateMs: z.number().min(0).default(5000),
   /** Heartbeat timeout in ms — agent considered unresponsive after this */
   heartbeatTimeoutMs: z.number().min(0).default(60000),
+  /** Whether to expose feedback collection tools (give_feedback, list_feedback) */
+  collectFeedback: z.boolean().default(false),
+  /** Path to the feedback markdown file */
+  feedbackFile: z.string().default('./.mcacp/feedback.md'),
   /** MCACP client info sent during ACP initialize */
   clientInfo: z.object({
     name: z.string().default('mcacp'),

@@ -12,6 +12,7 @@ import { SessionManager } from '../sessions/index.js';
 import { PromptHandler } from '../sessions/prompt.js';
 import { PermissionEngine } from '../permissions/index.js';
 import { AgentRequestHandler } from '../acp/agent-requests.js';
+import { appendFeedback, readFeedback } from '../feedback/index.js';
 import type { ContentBlock, McpServer as AcpMcpServer } from '../types/acp.js';
 
 export async function createServer(configPath?: string) {
@@ -409,6 +410,40 @@ export async function createServer(configPath?: string) {
       return { content: [{ type: 'text' as const, text: `Status set for ${agentId}: ${status}` }] };
     },
   );
+
+  // ---- Feedback tools ----
+
+  if (config.collectFeedback) {
+
+  server.tool(
+    'give_feedback',
+    'Write structured feedback. Appends a timestamped markdown entry to the feedback file.',
+    {
+      message: z.string().describe('The feedback message'),
+      category: z.enum(['bug', 'feature', 'improvement', 'question', 'other']).describe('Feedback category'),
+      sentiment: z.enum(['positive', 'negative', 'neutral']).describe('Feedback sentiment'),
+      agentId: z.string().optional().describe('ID of the agent this feedback is about'),
+      toolName: z.string().optional().describe('Name of the tool this feedback is about'),
+      taskId: z.string().optional().describe('ID of the task this feedback is about'),
+    },
+    async ({ message, category, sentiment, agentId, toolName, taskId }) => {
+      const timestamp = appendFeedback(config.feedbackFile, {
+        message, category, sentiment, agentId, toolName, taskId,
+      });
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ recorded: true, timestamp }, null, 2) }] };
+    },
+  );
+
+  server.tool(
+    'list_feedback',
+    'Read all recorded feedback from the feedback markdown file.',
+    {},
+    async () => ({
+      content: [{ type: 'text' as const, text: readFeedback(config.feedbackFile) }],
+    }),
+  );
+
+  } // collectFeedback
 
   // ---- Resources ----
 

@@ -90,15 +90,22 @@ describe('PermissionEngine', () => {
   });
 
   describe('elicit policy', () => {
-    it('falls back to allow_all when no elicitation sender is set', async () => {
+    it('falls back to operator mode when no elicitation sender is set', async () => {
       const session = makeSession('elicit');
       const params = makeParams([
         { optionId: 'reject-1', name: 'Reject', kind: 'reject_once' },
         { optionId: 'allow-1', name: 'Allow Once', kind: 'allow_once' },
       ]);
 
-      const result = await engine.handle(session, mockHandle, params, emptyUpdates);
+      const promise = engine.handle(session, mockHandle, params, emptyUpdates);
 
+      // Without a sender, elicit falls back to operator — pending permission surfaces to the caller
+      expect(session.pendingPermission).not.toBeNull();
+      expect(session.pendingPermission!.toolCallId).toBe('tc-1');
+
+      // Resolve it so the test doesn't hang
+      session.pendingPermission!.resolve({ selected: { optionId: 'allow-1' } });
+      const result = await promise;
       expect(result).toEqual({ selected: { optionId: 'allow-1' } });
     });
 
