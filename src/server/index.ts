@@ -228,8 +228,8 @@ export async function createServer(configPath?: string) {
   // ---- Interaction tools ----
 
   server.tool(
-    'prompt_start',
-    'Send a prompt to an active ACP session. Returns immediately with { status: "prompted" }. Use prompt or prompt_events to consume events.',
+    'prompt_polled',
+    'Send a prompt to an active ACP session. Returns immediately with { status: "prompted" }. Use prompt_events to poll for events. Pair with prompt_events for the async pattern; use prompt_sync for the blocking pattern.',
     {
       sessionId: z.string().describe('Active session ID'),
       prompt: z.union([
@@ -242,7 +242,7 @@ export async function createServer(configPath?: string) {
     },
     async ({ sessionId, prompt: p }) => ({
       content: [{ type: 'text' as const, text: JSON.stringify(
-        promptHandler.promptStart(sessionId, p as string | ContentBlock[]), null, 2,
+        promptHandler.promptPolled(sessionId, p as string | ContentBlock[]), null, 2,
       ) }],
     }),
   );
@@ -259,12 +259,24 @@ export async function createServer(configPath?: string) {
   );
 
   server.tool(
-    'prompt',
-    'Block until at least one prompt event is available. Returns queued events including updates (with full ACP metadata), permission requests, and completion. The default way to consume prompt results.',
-    { sessionId: z.string().describe('Active session ID') },
-    async ({ sessionId }) => ({
+    'prompt_sync',
+    'Send a prompt and block until it completes, errors, or a permission_request needs operator attention. Returns all collected events at once. Returns early (without a complete event) on permission_request or timeout. For the async pattern, use prompt_polled + prompt_events instead.',
+    {
+      sessionId: z.string().describe('Active session ID'),
+      prompt: z.union([
+        z.string(),
+        z.array(z.union([
+          z.object({ type: z.literal('text'), text: z.string() }),
+          z.object({ type: z.literal('resource_link'), uri: z.string(), mimeType: z.string().optional() }),
+        ])),
+      ]).describe('Prompt text or content blocks'),
+      timeoutMs: z.number().optional().describe('Max wait time in ms. Returns collected events on timeout (may be empty).'),
+      includeThoughts: z.boolean().default(false).describe('Include non-tool, non-terminal updates (message chunks, thought chunks, plan, mode changes, etc.)'),
+      includeTools: z.boolean().default(false).describe('Include tool_call and tool_call_update updates in returned events'),
+    },
+    async ({ sessionId, prompt: p, timeoutMs, includeThoughts, includeTools }) => ({
       content: [{ type: 'text' as const, text: JSON.stringify(
-        await promptHandler.prompt(sessionId), null, 2,
+        await promptHandler.promptSync(sessionId, p as string | ContentBlock[], timeoutMs, includeThoughts, includeTools), null, 2,
       ) }],
     }),
   );

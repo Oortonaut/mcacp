@@ -46,7 +46,6 @@ All other fields use the highest-priority value.
 ```
 
 **Note:** `cwd` is not a config-level field — it's set per-session via `new_session` / `load_session`.
-Tool-call events (`tool_call`, `tool_call_update`) are surfaced in the event stream when the agent emits them.
 
 ## agent_servers
 
@@ -123,6 +122,44 @@ https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json
 Use `registry_search` to browse, `agent_install` to install from registry.
 Registry-installed agents are stored in `installDir` (default: `./.mcacp/agents/`).
 
+## Interaction Patterns
+
+MCACP exposes two patterns for sending prompts and consuming results:
+
+### Synchronous: `prompt_sync`
+
+A single blocking call that sends the prompt and waits for the full response.
+
+```
+prompt_sync(sessionId, prompt, timeoutMs?, includeThoughts?, includeTools?)
+```
+
+Returns all collected events once the prompt completes, errors, or a `permission_request`
+arrives (operator policy). The `includeThoughts` and `includeTools` flags control which
+intermediate events are returned:
+
+| Flag | Default | Includes |
+|------|---------|----------|
+| `includeThoughts` | `false` | All non-tool, non-terminal updates: message chunks, thought chunks, plan entries, mode changes |
+| `includeTools` | `false` | `tool_call` and `tool_call_update` events |
+
+Terminal events (`complete`, `error`) and `permission_request` events are always returned.
+
+**Early return conditions:**
+- **`permission_request`** — the caller must handle it via `grant_permission`, then call `prompt_sync` again to continue.
+- **Timeout** — returns whatever events have been collected (may be empty).
+
+### Asynchronous: `prompt_polled` + `prompt_events`
+
+Fire-and-forget start, then poll for events at your own pace.
+
+```
+prompt_polled(sessionId, prompt)   → { status: "prompted" }
+prompt_events(sessionId)           → { events: [...] }
+```
+
+Use `events(timeoutMs?, nagleMs?)` to block across all prompted sessions simultaneously.
+
 ## Permission Policies
 
 | Policy | Behavior |
@@ -133,6 +170,11 @@ Registry-installed agents are stored in `installDir` (default: `./.mcacp/agents/
 | `operator` | Surfaces as `permission_request` events — the calling agent decides |
 
 Set per-agent via `agent_servers[id].permissionPolicy` or globally via `defaultPermissionPolicy`.
+
+**Note on operator policy with `prompt_sync`:** Since the caller is blocked waiting for completion,
+a `permission_request` causes `prompt_sync` to return early so the caller can respond via
+`grant_permission` and then resume with another `prompt_sync` call. The `elicit`, `allow_all`, and
+`deny_all` policies are handled internally and do not cause early returns.
 
 ## Event Consolidation
 

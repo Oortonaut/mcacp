@@ -35,9 +35,9 @@ export class PromptHandler {
 
   /**
    * Send a prompt to an ACP session. Returns immediately after dispatching.
-   * The session enters "prompted" state; use prompt_events or prompt to consume events.
+   * The session enters "prompted" state; use prompt_events to poll for events.
    */
-  promptStart(sessionId: SessionId, promptContent: string | ContentBlock[]): { status: 'prompted' } {
+  promptPolled(sessionId: SessionId, promptContent: string | ContentBlock[]): { status: 'prompted' } {
     const session = this.sessions.getSession(sessionId);
     if (session.promptState === 'prompted') {
       throw new Error(`Session "${sessionId}" already has an active prompt`);
@@ -85,18 +85,76 @@ export class PromptHandler {
   }
 
   /**
-   * Blocking wait. Returns when at least one event is available.
-   * If the queue already has events, returns immediately.
+   * Combined start + blocking wait. Sends the prompt and blocks until the
+   * prompt completes, errors, or a permission_request requires operator
+   * attention (to avoid deadlocking the caller).
+   *
+   * Event filtering:
+   * - includeThoughts: include all non-tool, non-terminal updates — message
+   *   chunks, thought chunks, plan entries, mode changes, etc. (default: false)
+   * - includeTools: include tool_call / tool_call_update updates (default: false)
+   *
+   * Returns early (without a 'complete' event) if:
+   * - A permission_request event arrives (operator policy) — the caller must
+   *   handle it via grant_permission and call promptSync again.
+   * - The timeout fires — the caller receives whatever events have been
+   *   collected so far (may be empty).
    */
-  prompt(sessionId: SessionId): Promise<{ events: PromptEvent[] }> {
-    const session = this.sessions.getSession(sessionId);
+  promptSync(
+    sessionId: SessionId,
+    promptContent: string | ContentBlock[],
+    timeoutMs?: number,
+    includeThoughts = false,
+    includeTools = false,
+  ): Promise<{ events: PromptEvent[] }> {
+    this.promptPolled(sessionId, promptContent);
 
-    if (session.eventQueue.length > 0) {
-      return Promise.resolve({ events: session.eventQueue.splice(0) });
-    }
+    const session = this.sessions.getSession(sessionId);
+    const collected: PromptEvent[] = [];
 
     return new Promise((resolve) => {
-      session.waiters.push((events) => resolve({ events }));
+      let done = false;
+
+      const finish = () => {
+        done = true;
+        if (timer) clearTimeout(timer);
+        resolve({ events: collected });
+      };
+
+      const timer = timeoutMs != null
+        ? setTimeout(() => {
+            if (done) return;
+            // Drain any remaining queued events before resolving
+            for (const e of session.eventQueue.splice(0)) {
+              if (shouldIncludeEvent(e, includeThoughts, includeTools)) collected.push(e);
+            }
+            finish();
+          }, timeoutMs)
+        : null;
+
+      const consume = (events: PromptEvent[]) => {
+        if (done) return;
+
+        let terminal = false;
+        for (const e of events) {
+          if (shouldIncludeEvent(e, includeThoughts, includeTools)) collected.push(e);
+          if (e.type === 'complete' || e.type === 'error' || e.type === 'permission_request') {
+            terminal = true;
+          }
+        }
+
+        if (terminal) { finish(); return; }
+
+        // Re-register for more events
+        session.waiters.push(consume);
+      };
+
+      // Drain any already-queued events (race with promptPolled)
+      if (session.eventQueue.length > 0) {
+        consume(session.eventQueue.splice(0));
+      } else {
+        session.waiters.push(consume);
+      }
     });
   }
 
@@ -405,4 +463,18 @@ export class PromptHandler {
       if (active) handle.status = { text: `Plan: ${active.content}`, updatedAt: Date.now() };
     }
   }
+}
+
+/**
+ * Filter helper for promptSync.
+ * - Terminal events (complete, error, permission_request) always pass.
+ * - Tool events (tool_call, tool_call_update) require includeTools.
+ * - Everything else is a "thought" and requires includeThoughts.
+ */
+function shouldIncludeEvent(event: PromptEvent, includeThoughts: boolean, includeTools: boolean): boolean {
+  if (event.type !== 'update') return true;
+  const u = event.update;
+  if (!('sessionUpdate' in u)) return includeThoughts;
+  if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') return includeTools;
+  return includeThoughts;
 }
