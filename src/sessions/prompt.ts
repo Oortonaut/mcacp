@@ -290,10 +290,10 @@ export class PromptHandler {
           const permParams = params as RequestPermissionParams;
           const target = d.sessions.get(permParams.sessionId);
           if (target) {
-            if (target.permissionPolicy === 'operator') {
-              return this.handleOperatorPermission(target, permParams);
-            }
-            return this.permissions.handle(target, handle, permParams, []);
+            const outcome = target.permissionPolicy === 'operator'
+              ? await this.handleOperatorPermission(target, permParams)
+              : await this.permissions.handle(target, handle, permParams, []);
+            return { outcome };
           }
         }
         if (d.prevRequestHandler) {
