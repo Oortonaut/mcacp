@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { resolve, join, sep, dirname } from 'node:path';
 import type { McacpConfig, PermissionPolicy } from '../types/config.js';
-import type { SessionId, SessionNewResult, SessionLoadResult, McpServer, SessionUpdate, StopReason } from '../types/acp.js';
+import type { SessionId, SessionNewResult, SessionLoadResult, McpServer, SessionUpdate, StopReason, RequestPermissionOutcome } from '../types/acp.js';
 import type { AgentHandle } from '../acp/lifecycle.js';
 import { LifecycleManager } from '../acp/lifecycle.js';
 
@@ -47,7 +47,7 @@ export interface PendingPermission {
   toolCallId: string;
   title: string;
   options: Array<{ optionId: string; name: string; kind: string }>;
-  resolve: (outcome: { selected: { optionId: string } } | { cancelled: Record<string, never> }) => void;
+  resolve: (outcome: RequestPermissionOutcome) => void;
 }
 
 export class SessionManager {

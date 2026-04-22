@@ -335,8 +335,8 @@ export interface PermissionOption {
 }
 
 export type RequestPermissionOutcome =
-  | { selected: { optionId: string } }
-  | { cancelled: Record<string, never> };
+  | { outcome: 'selected'; optionId: string }
+  | { outcome: 'cancelled' };
 
 // -----------------------------------------------------------------------------
 // File System (agent -> client requests)

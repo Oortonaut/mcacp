@@ -1,6 +1,6 @@
 import type {
   SessionId, SessionUpdate, SessionPromptResult, ContentBlock,
-  SessionUpdateNotification, StopReason, RequestPermissionParams, RequestId,
+  SessionUpdateNotification, StopReason, RequestPermissionParams, RequestPermissionOutcome, RequestId,
 } from '../types/acp.js';
 import type { AgentHandle } from '../acp/lifecycle.js';
 import type { McacpConfig } from '../types/config.js';
@@ -168,7 +168,7 @@ export class PromptHandler {
     if (session.pendingPermission.toolCallId !== toolCallId) {
       throw new Error(`Pending permission is for "${session.pendingPermission.toolCallId}", not "${toolCallId}"`);
     }
-    session.pendingPermission.resolve({ selected: { optionId } });
+    session.pendingPermission.resolve({ outcome: 'selected', optionId });
     session.pendingPermission = null;
   }
 
@@ -434,7 +434,7 @@ export class PromptHandler {
   private handleOperatorPermission(
     session: ActiveSession,
     params: RequestPermissionParams,
-  ): Promise<{ selected: { optionId: string } } | { cancelled: Record<string, never> }> {
+  ): Promise<RequestPermissionOutcome> {
     this.pushEvent(session, {
       type: 'permission_request',
       toolCallId: params.toolCall.toolCallId,

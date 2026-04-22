@@ -33,15 +33,15 @@ export class PermissionEngine {
 
   private handleAllowAll(params: RequestPermissionParams): RequestPermissionOutcome {
     const opt = params.options.find(o => o.kind === 'allow_once' || o.kind === 'allow_always');
-    if (opt) return { selected: { optionId: opt.optionId } };
-    if (params.options.length > 0) return { selected: { optionId: params.options[0].optionId } };
-    return { cancelled: {} };
+    if (opt) return { outcome: 'selected', optionId: opt.optionId };
+    if (params.options.length > 0) return { outcome: 'selected', optionId: params.options[0].optionId };
+    return { outcome: 'cancelled' };
   }
 
   private handleDenyAll(params: RequestPermissionParams): RequestPermissionOutcome {
     const opt = params.options.find(o => o.kind === 'reject_once' || o.kind === 'reject_always');
-    if (opt) return { selected: { optionId: opt.optionId } };
-    return { cancelled: {} };
+    if (opt) return { outcome: 'selected', optionId: opt.optionId };
+    return { outcome: 'cancelled' };
   }
 
   private async handleElicit(
@@ -70,9 +70,9 @@ export class PermissionEngine {
     try {
       const result = await this.elicitationSender(message, schema);
       if (result.action === 'accept' && result.content?.decision) {
-        return { selected: { optionId: result.content.decision as string } };
+        return { outcome: 'selected', optionId: result.content.decision as string };
       }
-      return { cancelled: {} };
+      return { outcome: 'cancelled' };
     } catch {
       // Host doesn't support elicitation — fall back to operator mode
       return this.handleOperator(session, params);
