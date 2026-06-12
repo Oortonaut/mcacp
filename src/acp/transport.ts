@@ -16,7 +16,7 @@ export interface TransportOptions {
 interface PendingRequest {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 type IncomingRequestHandler = (method: string, params: unknown, id: RequestId) => Promise<unknown>;
@@ -100,16 +100,33 @@ export class AcpTransport extends EventEmitter {
     this.onNotification = handler;
   }
 
-  async request(method: string, params?: unknown): Promise<unknown> {
+  /**
+   * Send a JSON-RPC request and await its response.
+   *
+   * @param timeoutMs Per-call timeout override. Defaults to the transport's
+   *   `requestTimeoutMs`. Pass `0` (or any non-positive value) to disable the
+   *   timeout entirely — required for inherently long-running requests like
+   *   `session/prompt`, which stay open for the full duration of the agent's
+   *   work and are bounded instead by `session/cancel` or process exit.
+   */
+  async request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
     if (this._closed) throw new Error('Transport is closed');
     const id = this.nextId++;
     const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
+    const effectiveTimeout = timeoutMs ?? this.requestTimeoutMs;
 
     return new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        reject(new Error(`Request timed out: ${method} (id=${id})`));
-      }, this.requestTimeoutMs);
+      const timer = effectiveTimeout > 0
+        ? setTimeout(() => {
+            this.pendingRequests.delete(id);
+            const err = new Error(`Request timed out: ${method} (id=${id})`);
+            // Typed marker so callers can distinguish a transport-level timeout
+            // from an agent-side JSON-RPC error that merely mentions "timeout".
+            // Agent errors carry a numeric `code`; this string never collides.
+            (err as { code?: unknown }).code = 'REQUEST_TIMEOUT';
+            reject(err);
+          }, effectiveTimeout)
+        : null;
       this.pendingRequests.set(id, { resolve, reject, timer });
       this.send(msg);
     });
@@ -155,7 +172,7 @@ export class AcpTransport extends EventEmitter {
       const pending = this.pendingRequests.get(idKey);
       if (pending) {
         this.pendingRequests.delete(idKey);
-        clearTimeout(pending.timer);
+        if (pending.timer) clearTimeout(pending.timer);
         if (resp.error) {
           const err = new Error(resp.error.message);
           (err as any).code = resp.error.code;
@@ -200,7 +217,7 @@ export class AcpTransport extends EventEmitter {
 
   private rejectAllPending(error: Error): void {
     for (const [, pending] of this.pendingRequests) {
-      clearTimeout(pending.timer);
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pendingRequests.clear();

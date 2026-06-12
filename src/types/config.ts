@@ -38,6 +38,13 @@ export const McacpConfigSchema = z.object({
   installDir: z.string().default('./.mcacp/agents'),
   /** Nagle timeout (ms) for batching text chunk events. 0 = disabled (push every chunk immediately). */
   promptConsolidateMs: z.number().min(0).default(5000),
+  /**
+   * Timeout (ms) for an in-flight `session/prompt` request. 0 = unlimited (the
+   * default). Prompts are long-running by nature; a non-zero value risks
+   * abandoning a prompt while the agent is still working, which orphans the
+   * agent and stalls subsequent prompts on the same session.
+   */
+  promptTimeoutMs: z.number().min(0).default(0),
   /** Heartbeat timeout in ms — agent considered unresponsive after this */
   heartbeatTimeoutMs: z.number().min(0).default(60000),
   /** Whether to expose feedback collection tools (give_feedback, list_feedback) */
