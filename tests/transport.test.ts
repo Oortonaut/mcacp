@@ -106,6 +106,41 @@ describe('AcpTransport', () => {
     await expect(responsePromise).rejects.toThrow(/Request timed out: slow\/method/);
   });
 
+  it('does not time out a request when the per-call timeout is 0', async () => {
+    const transport = new AcpTransport({
+      command: 'test-agent',
+      requestTimeoutMs: 50, // short default — would fire if not overridden
+    });
+    transport.start();
+
+    // Override the timeout to 0 (unlimited) — as session/prompt does.
+    const responsePromise = transport.request('session/prompt', {}, 0);
+
+    // Wait well past the default timeout; the request must still be pending.
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    const sentMsg = JSON.parse(mock.stdinChunks[0]);
+    mock.stdout.push(JSON.stringify({
+      jsonrpc: '2.0',
+      id: sentMsg.id,
+      result: { stopReason: 'end_turn' },
+    }) + '\n');
+
+    await expect(responsePromise).resolves.toEqual({ stopReason: 'end_turn' });
+  });
+
+  it('uses the default timeout when no per-call override is given', async () => {
+    const transport = new AcpTransport({
+      command: 'test-agent',
+      requestTimeoutMs: 50,
+    });
+    transport.start();
+
+    const responsePromise = transport.request('initialize', {});
+    await expect(responsePromise).rejects.toThrow(/Request timed out: initialize/);
+    await expect(responsePromise).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+  });
+
   it('handles notifications via notification handler', async () => {
     const transport = new AcpTransport({ command: 'test-agent' });
     const handler = vi.fn();

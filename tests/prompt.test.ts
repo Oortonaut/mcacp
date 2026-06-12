@@ -18,6 +18,7 @@ function makeConfig(overrides?: Partial<McacpConfig>): McacpConfig {
     sessionDir: './.mcacp',
     installDir: './.mcacp/agents',
     promptConsolidateMs: 0, // disable Nagle for most tests
+    promptTimeoutMs: 0, // unlimited prompt duration
     heartbeatTimeoutMs: 60000,
     clientInfo: { name: 'mcacp', version: '0.1.0', title: 'MCACP Bridge' },
     ...overrides,
@@ -63,7 +64,11 @@ function makeMockTransport() {
   return {
     transport,
     resolvePrompt: (stopReason = 'end_turn') => promptResolve!({ stopReason }),
-    rejectPrompt: (msg: string) => promptReject!(new Error(msg)),
+    rejectPrompt: (msg: string, code?: string) => {
+      const err = new Error(msg);
+      if (code) (err as { code?: unknown }).code = code;
+      promptReject!(err);
+    },
   };
 }
 
@@ -156,13 +161,13 @@ describe('PromptHandler', () => {
       expect(session.promptState).toBe('prompted');
     });
 
-    it('fires session/prompt on the transport', () => {
+    it('fires session/prompt on the transport with the configured (unlimited) timeout', () => {
       handler.promptPolled('sess-1', 'Hello');
 
       expect(transport.transport.request).toHaveBeenCalledWith('session/prompt', {
         sessionId: 'sess-1',
         prompt: [{ type: 'text', text: 'Hello' }],
-      });
+      }, 0);
     });
 
     it('accepts ContentBlock[] as prompt content', () => {
@@ -172,7 +177,55 @@ describe('PromptHandler', () => {
       expect(transport.transport.request).toHaveBeenCalledWith('session/prompt', {
         sessionId: 'sess-1',
         prompt: blocks,
+      }, 0);
+    });
+
+    it('passes a non-zero promptTimeoutMs through to the transport', () => {
+      config.promptTimeoutMs = 120000;
+      handler.promptPolled('sess-1', 'Hello');
+
+      expect(transport.transport.request).toHaveBeenCalledWith('session/prompt', {
+        sessionId: 'sess-1',
+        prompt: [{ type: 'text', text: 'Hello' }],
+      }, 120000);
+    });
+
+    it('cancels the agent when a prompt is abandoned due to a timeout', async () => {
+      handler.promptPolled('sess-1', 'Hello');
+      transport.rejectPrompt('Request timed out: session/prompt (id=1)', 'REQUEST_TIMEOUT');
+
+      // Let the rejection propagate through the .catch handler.
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(transport.transport.notify).toHaveBeenCalledWith('session/cancel', {
+        sessionId: 'sess-1',
       });
+
+      const session = sessions.get('sess-1')!;
+      expect(session.promptState).toBe('idle');
+      const errorEvent = session.eventQueue.find(e => e.type === 'error');
+      expect(errorEvent).toBeDefined();
+    });
+
+    it('does not send cancel for a normal (non-timeout) prompt error', async () => {
+      handler.promptPolled('sess-1', 'Hello');
+      transport.rejectPrompt('Some agent-side failure');
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(transport.transport.notify).not.toHaveBeenCalled();
+    });
+
+    it('does not send cancel for an agent error that merely mentions a timeout', async () => {
+      // Guards against matching on the error message text: an agent-side error
+      // can legitimately contain "Request timed out" without being our own
+      // transport timeout. Only the typed REQUEST_TIMEOUT code triggers cancel.
+      handler.promptPolled('sess-1', 'Hello');
+      transport.rejectPrompt('Upstream API Request timed out');
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(transport.transport.notify).not.toHaveBeenCalled();
     });
 
     it('throws if session already has an active prompt', () => {

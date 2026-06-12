@@ -36,6 +36,7 @@ All other fields use the highest-priority value.
   "sessionDir": "./.mcacp",
   "installDir": "./.mcacp/agents",
   "promptConsolidateMs": 5000,
+  "promptTimeoutMs": 0,
   "heartbeatTimeoutMs": 60000,
   "clientInfo": {
     "name": "mcacp",
@@ -187,6 +188,16 @@ Flush triggers:
 - A non-chunk event arrives (tool_call, complete, error, permission_request)
 
 Configure via `promptConsolidateMs` (default: `5000`ms). Set to `0` to disable consolidation and push every chunk immediately.
+
+## Prompt Timeout
+
+`promptTimeoutMs` (default: `0`) bounds how long an in-flight `session/prompt` may run before MCACP gives up on it.
+
+A `session/prompt` is long-running by nature — it stays open for the entire duration of the agent's work, which for a large refactor or build can be many minutes. The default of `0` means **unlimited**: the prompt is bounded only by the agent's own response, an explicit `cancel`, or the agent process exiting.
+
+Set a non-zero value only if you want a hard ceiling. When the timeout fires, MCACP sends `session/cancel` to the agent (so it doesn't keep running an orphaned task) and emits an `error` event for the prompt. Setting this too low is the classic cause of "the agent times out on long tasks and then stalls on retry" — the underlying request is killed while the agent is still busy, and the next prompt queues behind work that never completes.
+
+> Note: this is distinct from the per-call `timeoutMs` argument on `promptSync` / `prompt_events` / `events`, which only controls how long *your* call waits for events — it never cancels the underlying prompt.
 
 ## Session Storage
 
