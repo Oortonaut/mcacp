@@ -277,6 +277,11 @@ export class PromptHandler {
           const notif = params as SessionUpdateNotification;
           const target = d.sessions.get(notif.sessionId);
           if (target) {
+            // Streaming output is activity. Without this the auto-reap timer
+            // only ever resets on session create/load and prompt *completion*,
+            // so an agent that streams for longer than `autoReapMs` looks idle
+            // and gets reaped mid-task — killing the very prompt it's answering.
+            this.lifecycle.touchActivity(handle.agentId);
             this.pushEventConsolidated(target, { type: 'update', update: notif.update });
             this.updateAgentStatus(handle, notif.update);
             return;

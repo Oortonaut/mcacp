@@ -119,6 +119,7 @@ describe('PromptHandler', () => {
   let handles: Map<string, AgentHandle>;
   let transport: ReturnType<typeof makeMockTransport>;
   let handler: PromptHandler;
+  let lifecycle: LifecycleManager;
 
   beforeEach(() => {
     config = makeConfig();
@@ -132,7 +133,7 @@ describe('PromptHandler', () => {
     const handle = makeHandle('agent-1', transport.transport);
     handles.set('agent-1', handle);
 
-    const lifecycle = makeMockLifecycle(handles);
+    lifecycle = makeMockLifecycle(handles);
     const sessionMgr = makeMockSessionManager(sessions);
     const permissions = makeMockPermissions();
 
@@ -626,6 +627,58 @@ describe('PromptHandler', () => {
         sessionId: 'sess-1',
         modeId: 'fast',
       });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // streaming activity (auto-reap)
+  // -----------------------------------------------------------------------
+  describe('streaming activity', () => {
+    /** The central notification handler installed on the first prompt. */
+    function notificationHandler(): (method: string, params: unknown) => void {
+      const call = transport.transport.setNotificationHandler.mock.calls[0];
+      if (!call) throw new Error('no notification handler was installed');
+      return call[0];
+    }
+
+    function chunk(sessionId: string, text: string) {
+      return {
+        sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text },
+        },
+      };
+    }
+
+    it('marks agent activity on session/update so the reap timer resets', () => {
+      handler.promptPolled('sess-1', 'Hello');
+      // Dispatching a prompt alone must not count — otherwise this test would
+      // pass even without the fix.
+      expect(lifecycle.touchActivity).not.toHaveBeenCalled();
+
+      notificationHandler()('session/update', chunk('sess-1', 'working...'));
+
+      expect(lifecycle.touchActivity).toHaveBeenCalledWith('agent-1');
+    });
+
+    it('marks activity on every streamed chunk, not just the first', () => {
+      handler.promptPolled('sess-1', 'Hello');
+      const notify = notificationHandler();
+
+      notify('session/update', chunk('sess-1', 'one'));
+      notify('session/update', chunk('sess-1', 'two'));
+      notify('session/update', chunk('sess-1', 'three'));
+
+      expect(lifecycle.touchActivity).toHaveBeenCalledTimes(3);
+    });
+
+    it('does not mark activity for updates on sessions it does not track', () => {
+      handler.promptPolled('sess-1', 'Hello');
+
+      notificationHandler()('session/update', chunk('someone-elses-session', 'hi'));
+
+      expect(lifecycle.touchActivity).not.toHaveBeenCalled();
     });
   });
 });
